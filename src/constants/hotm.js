@@ -1,7 +1,7 @@
-import { stats_symbols as symbols } from "./stats.js";
+import { SYMBOLS } from "../../common/constants.js";
 import { round, floor, ceil, convertHMS, titleCase } from "../helper.js";
 
-const upgrade_types = {
+const UPGRADE_TYPES = {
   mithril_powder: {
     name: "Mithril Powder",
     color: "2",
@@ -51,7 +51,7 @@ const rewards = {
       new_forgeable_items: 0,
     },
     7: {
-      token_of_the_mountain: 2,
+      token_of_the_mountain: 3,
       new_forgeable_items: 0,
     },
   },
@@ -59,18 +59,31 @@ const rewards = {
     1: {
       pickaxe_ability_level: 1,
       token_of_the_mountain: 1,
+      skyblock_experience: 25,
     },
     2: {
       forge_slot: 1,
+      skyblock_experience: 35,
     },
     3: {
       commission_slot: 1,
+      skyblock_experience: 50,
     },
     4: {
       mithril_powder_when_mining_mithril: 1,
+      skyblock_experience: 65,
     },
     5: {
       token_of_the_mountain: 1,
+      skyblock_experience: 75,
+    },
+    6: {
+      gemstone_powder_when_mining_gemstones: 2,
+      skyblock_experience: 100,
+    },
+    7: {
+      token_of_the_mountain: 1,
+      skyblock_experience: 125,
     },
   },
   rewards: {
@@ -109,6 +122,14 @@ const rewards = {
     mithril_powder_when_mining_mithril: {
       formatted: "§2Mithril Powder §7when mining §fMithril",
       qtyColor: "2",
+    },
+    gemstone_powder_when_mining_gemstones: {
+      formatted: "§dGemstone Powder §7when mining §dGemstones",
+      qtyColor: "d",
+    },
+    skyblock_experience: {
+      formatted: "§bSkyblock XP",
+      qtyColor: "b",
     },
   },
 };
@@ -248,7 +269,7 @@ class HotM {
   }
 
   get position7x9() {
-    return 9 * (hotm.tiers - this.tier) + 1;
+    return 9 * (HOTM.tiers - this.tier) + 1;
   }
 }
 
@@ -274,7 +295,7 @@ class Node {
   }
 
   get position7x9() {
-    return this.position + 1 + (ceil(this.position / hotm.tiers) - 1) * 2;
+    return this.position + 1 + (ceil(this.position / HOTM.tiers) - 1) * 2;
   }
 
   get itemData() {
@@ -304,7 +325,7 @@ class Node {
   }
 
   get lore() {
-    let output = [];
+    const output = [];
 
     // Name
     output.push(this.displayName);
@@ -334,8 +355,8 @@ class Node {
       output.push(
         "",
         "§7Cost",
-        `§${upgrade_types[this.upgrade_type].color}${this.upgradeCost.toLocaleString()} ${
-          upgrade_types[this.upgrade_type].name
+        `§${UPGRADE_TYPES[this.upgrade_type].color}${this.upgradeCost.toLocaleString()} ${
+          UPGRADE_TYPES[this.upgrade_type].name
         }`
       );
     }
@@ -350,7 +371,7 @@ class Node {
       output.push("", "§7Cost");
       for (const [upgradeId, upgradeQty] of Object.entries(this.unlockCost)) {
         output.push(
-          `§${upgrade_types[upgradeId].color}${upgradeQty > 0 ? `${upgradeQty} ` : ""}${upgrade_types[upgradeId].name}`
+          `§${UPGRADE_TYPES[upgradeId].color}${upgradeQty > 0 ? `${upgradeQty} ` : ""}${UPGRADE_TYPES[upgradeId].name}`
         );
       }
     }
@@ -468,7 +489,7 @@ class MiningSpeed2 extends Node {
 
   perk(level) {
     const val = level * 40;
-    return [`§7Grants §a+${val} §6${symbols.mining_speed} Mining Speed§7.`];
+    return [`§7Grants §a+${val} §6${SYMBOLS.mining_speed} Mining Speed§7.`];
   }
 }
 
@@ -512,7 +533,7 @@ class MiningFortune2 extends Node {
 
   perk(level) {
     const val = level * 5;
-    return [`§7Grants §a+${val} §6${symbols.mining_fortune} Mining Fortune§7.`];
+    return [`§7Grants §a+${val} §6${SYMBOLS.mining_fortune} Mining Fortune§7.`];
   }
 }
 
@@ -567,7 +588,7 @@ class LonesomeMiner extends Node {
   perk(level) {
     const val = round(5 + (level - 1) * 0.5);
     return [
-      `§7Increases §c${symbols.strength} Strength, §9${symbols.crit_chance} Crit Chance, §9${symbols.crit_damage} Crit Damage, §a${symbols.defense} Defense, and §c${symbols.health} Health §7statistics gain by §a${val}% §7while in the Crystal Hollows.`,
+      `§7Increases §c${SYMBOLS.strength} Strength, §9${SYMBOLS.crit_chance} Crit Chance, §9${SYMBOLS.crit_damage} Crit Damage, §a${SYMBOLS.defense} Defense, and §c${SYMBOLS.health} Health §7statistics gain by §a${val}% §7while in the Crystal Hollows.`,
     ];
   }
 }
@@ -590,7 +611,7 @@ class Professional extends Node {
 
   perk(level) {
     const val = 50 + level * 5;
-    return [`§7Gain §a+${val}§7 §6${symbols.mining_speed} Mining Speed§7 when mining Gemstones.`];
+    return [`§7Gain §a+${val}§7 §6${SYMBOLS.mining_speed} Mining Speed§7 when mining Gemstones.`];
   }
 }
 
@@ -657,8 +678,8 @@ class Fortunate extends Node {
   }
 
   perk(level) {
-    const val = level * 5;
-    return [`§7Grants §a+${val}§7 §6${symbols.mining_fortune} Mining Fortune§7 when mining Gemstone.`];
+    const val = 20 + level * 4;
+    return [`§7Grants §a+${val}§7 §6${SYMBOLS.mining_fortune} Mining Fortune§7 when mining Gemstone.`];
   }
 }
 
@@ -706,7 +727,7 @@ class ManiacMiner extends Node {
     const cooldown = [60, 59, 59][this.pickaxeAbilityLevel - 1];
     return [
       "§6Pickaxe Ability: Maniac Miner",
-      `§7Spends all your Mana and grants §a+${speed} §6${symbols.mining_speed} Mining Speed §7for every 10 Mana spent, for §a${duration}s§7.`,
+      `§7Spends all your Mana and grants §a+${speed} §6${SYMBOLS.mining_speed} Mining Speed §7for every 10 Mana spent, for §a${duration}s§7.`,
       `§8Cooldown: §a${cooldown}s`,
       "",
       "§8Pickaxe Abilities apply to all of your pickaxes. You can select a Pickaxe Ability from your Heart of the Mountain.",
@@ -744,21 +765,23 @@ class PeakOfTheMountain extends Node {
     this.id = "special_0";
     this.name = nodeNames[this.id];
     this.position = 18;
-    this.max_level = 5;
-    this.upgrade_type = "mithril_powder";
+    this.max_level = 7;
+    this.upgrade_type = data.level >= 5 ? "gemstone_powder" : "mithril_powder";
     this.requires = ["efficient_miner"];
     this.nodeType = "special";
   }
 
   get upgradeCost() {
     const nextLevel = this.level + 1;
-    return floor(25000 * nextLevel);
+    return nextLevel <= 5 ? floor(25000 * nextLevel) : floor(500000 + 250000 * (nextLevel - 6));
   }
 
   perk(level) {
     const output = [];
 
-    for (let tier = 1; tier <= level; tier++) {
+    const baseTier = level > this.level ? level : 1;
+
+    for (let tier = baseTier; tier <= level; tier++) {
       for (const [reward, qty] of Object.entries(rewards.potm[tier])) {
         const qtyColor = rewards.rewards[reward].qtyColor;
         const formatted = rewards.rewards[reward].formatted;
@@ -816,8 +839,8 @@ class SkyMall extends Node {
       "§7Every SkyBlock day, you receive a random buff in the §2Dwarven Mines§7.",
       "",
       "§7Possible Buffs",
-      `§8 ■ §7Gain §a+100 §6${symbols.mining_speed} Mining Speed.`,
-      `§8 ■ §7Gain §a+50 §6${symbols.mining_fortune} Mining Fortune.`,
+      `§8 ■ §7Gain §a+100 §6${SYMBOLS.mining_speed} Mining Speed.`,
+      `§8 ■ §7Gain §a+50 §6${SYMBOLS.mining_fortune} Mining Fortune.`,
       "§8 ■ §7Gain §a+15% §7chance to gain extra Powder while mining.",
       "§8 ■ §7Reduce Pickaxe Ability cooldown by §a20%",
       "§8 ■ §7§a10x §7chance to find Goblins while mining.",
@@ -843,7 +866,7 @@ class MiningMadness extends Node {
 
   perk(level) {
     return [
-      `§7Grants §a+50 §6${symbols.mining_speed} Mining Speed §7and §6${symbols.mining_fortune} Mining Fortune§7.`,
+      `§7Grants §a+50 §6${SYMBOLS.mining_speed} Mining Speed §7and §6${SYMBOLS.mining_fortune} Mining Fortune§7.`,
     ];
   }
 }
@@ -932,7 +955,7 @@ class FrontLoaded extends Node {
 
   perk(level) {
     return [
-      `§7Grants §a+100 §6${symbols.mining_speed} Mining Speed §7and §6${symbols.mining_fortune} Mining Fortune §7for the first §e2,500 §7ores you mine in a day.`,
+      `§7Grants §a+100 §6${SYMBOLS.mining_speed} Mining Speed §7and §6${SYMBOLS.mining_fortune} Mining Fortune §7for the first §e2,500 §7ores you mine in a day.`,
     ];
   }
 }
@@ -954,7 +977,7 @@ class PrecisionMining extends Node {
 
   perk(level) {
     return [
-      `§7When mining ore, a particle target appears on the block that increases your §6${symbols.mining_speed} Mining Speed §7by §a30% §7when aiming at it.`,
+      `§7When mining ore, a particle target appears on the block that increases your §6${SYMBOLS.mining_speed} Mining Speed §7by §a30% §7when aiming at it.`,
     ];
   }
 }
@@ -1022,7 +1045,7 @@ class Crystallized extends Node {
   perk(level) {
     const val = 20 + (level - 1) * 6;
     return [
-      `§7Grants §a+${val} §6${symbols.mining_speed} Mining Speed §7and a §a${val}% §7chance to deal §a+1 §7extra damage near §5Fallen Stars§7.`,
+      `§7Grants §a+${val} §6${SYMBOLS.mining_speed} Mining Speed §7and a §a${val}% §7chance to deal §a+1 §7extra damage near §5Fallen Stars§7.`,
     ];
   }
 }
@@ -1049,7 +1072,7 @@ class MiningSpeedBoost extends Node {
     const cooldown = [120, 120, 120][this.pickaxeAbilityLevel - 1];
     return [
       "§6Pickaxe Ability: Mining Speed Boost",
-      `§7Grants §a+${effect}% §6${symbols.mining_speed} Mining Speed §7for §a${duration}s§7.`,
+      `§7Grants §a+${effect}% §6${SYMBOLS.mining_speed} Mining Speed §7for §a${duration}s§7.`,
       `§8Cooldown: §a${cooldown}s`,
       "",
       "§8Pickaxe Abilities apply to all of your pickaxes. You can select a Pickaxe Ability from your Heart of the Mountain.",
@@ -1099,7 +1122,7 @@ class MiningFortune extends Node {
 
   perk(level) {
     const val = level * 5;
-    return [`§7Grants §a+${val} §6${symbols.mining_fortune} Mining Fortune§7.`];
+    return [`§7Grants §a+${val} §6${SYMBOLS.mining_fortune} Mining Fortune§7.`];
   }
 }
 
@@ -1177,7 +1200,7 @@ class MiningSpeed extends Node {
 
   perk(level) {
     const val = level * 20;
-    return [`§7Grants §a+${val} §6${symbols.mining_speed} Mining Speed§7.`];
+    return [`§7Grants §a+${val} §6${SYMBOLS.mining_speed} Mining Speed§7.`];
   }
 }
 
@@ -1193,7 +1216,7 @@ class MiningSpeed extends Node {
 
 class HotmItem {
   get position7x9() {
-    return 9 * (hotm.tiers - this.position) + 9;
+    return 9 * (HOTM.tiers - this.position) + 9;
   }
 }
 
@@ -1221,7 +1244,7 @@ class HotmStats extends HotmItem {
       "",
       "§7§8Use §5Token of the Mountain §8to unlock perks and abilities above!",
       "",
-      `§9${symbols.powder} Powder`,
+      `§9${SYMBOLS.powder} Powder`,
       "§9Powders §8are dropped from mining ores in the §2Dwarven Mines §8and are used to upgrade the perks you've unlocked!",
       "",
       `§7Mithril Powder: §2${this.resources.mithril_powder.toLocaleString()}`,
@@ -1413,7 +1436,7 @@ for (const nodeClass of Object.values(nodeClasses)) {
   }
 }
 
-export const hotm = {
+export const HOTM = {
   tiers: Object.keys(rewards.hotm).length,
   rewards: rewards,
   names: nodeNames,
@@ -1423,7 +1446,7 @@ export const hotm = {
   powder_for_max_nodes: powderForMaxNodes,
 };
 
-export const precursor_parts = {
+export const PRECURSOR_PARTS = {
   ELECTRON_TRANSMITTER: "Electron Transmitter",
   FTX_3070: "FTX 3070",
   ROBOTRON_REFLECTOR: "Robotron Reflector",
@@ -1431,3 +1454,7 @@ export const precursor_parts = {
   CONTROL_SWITCH: "Control Switch",
   SYNTHETIC_HEART: "Synthetic Heart",
 };
+
+export const COMMISSIONS_MILESTONE = 6;
+
+export const MAX_PEAK_OF_THE_MOUNTAIN_LEVEL = 7;

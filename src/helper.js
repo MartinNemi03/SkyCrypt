@@ -4,13 +4,34 @@ import sanitize from "mongo-sanitize";
 import "axios-debug-log";
 import { v4 } from "uuid";
 import retry from "async-retry";
+import path from "path";
+import fs from "fs-extra";
+import { fileURLToPath } from "url";
+import { getPrices } from "skyhelper-networth";
 
 export { renderLore, formatNumber } from "../common/formatting.js";
+export * from "../common/helper.js";
+import { titleCase } from "../common/helper.js";
 
-import * as constants from "./constants.js";
+import {
+  GUILD_XP,
+  COLOR_NAMES,
+  RANKS,
+  GEMSTONES,
+  STATS_DATA,
+  RARITIES,
+  RARITY_COLORS,
+  HOTM,
+  TYPE_TO_CATEGORIES,
+  PET_DATA,
+  PET_RARITY_OFFSET,
+  PET_LEVELS,
+  ITEM_ANIMATIONS,
+} from "./constants.js";
+
 import credentials from "./credentials.js";
 
-const Hypixel = axios.create({
+const hypixel = axios.create({
   baseURL: "https://api.hypixel.net/",
 });
 
@@ -122,26 +143,26 @@ export async function resolveUsernameOrUuid(uuid, db, cacheOnly = false) {
     }
   }
 
-  const defaultAlexSkin =
+  const DEFAULT_ALEX_SKIN =
     "https://textures.minecraft.net/texture/3b60a1f6d562f52aaebbf1434f1de147933a3affe0e764fa49ea057536623cd3";
 
   /** @type {{model:"default"|"slim"; skinurl:string; capeurl?:string;}} */
-  const skin_data = {
-    skinurl: defaultAlexSkin,
+  const skinData = {
+    skinurl: DEFAULT_ALEX_SKIN,
     model: "slim",
   };
 
   if (user?.skinurl != undefined) {
-    skin_data.skinurl = user.skinurl;
-    skin_data.model = user.model;
+    skinData.skinurl = user.skinurl;
+    skinData.model = user.model;
 
     if (user?.capeurl != undefined) {
-      skin_data.capeurl = user.capeurl;
+      skinData.capeurl = user.capeurl;
     }
   }
 
   if (cacheOnly === false && (user == undefined || +new Date() - user.date > 7200 * 1000)) {
-    let profileRequest = axios(`https://api.ashcon.app/mojang/v1/user/${uuid}`, { timeout: 5000 });
+    const profileRequest = axios(`https://api.ashcon.app/mojang/v2/user/${uuid}`, { timeout: 5000 });
 
     profileRequest
       .then(async (response) => {
@@ -156,15 +177,15 @@ export async function resolveUsernameOrUuid(uuid, db, cacheOnly = false) {
           };
 
           if (data.textures?.skin != undefined) {
-            skin_data.skinurl = data.textures.skin.url;
-            skin_data.model = data.textures.slim ? "slim" : "default";
+            skinData.skinurl = data.textures.skin.url;
+            skinData.model = data.textures.slim ? "slim" : "default";
           }
 
           if (data.textures?.cape != undefined) {
-            skin_data.capeurl = data.textures.cape.url;
+            skinData.capeurl = data.textures.cape.url;
           }
 
-          updateDoc = Object.assign(updateDoc, skin_data);
+          updateDoc = Object.assign(updateDoc, skinData);
 
           await db.collection("usernames").updateOne({ uuid: data.id }, { $set: updateDoc }, { upsert: true });
 
@@ -195,23 +216,23 @@ export async function resolveUsernameOrUuid(uuid, db, cacheOnly = false) {
 
     if (!user) {
       try {
-        let { data } = await profileRequest;
+        const { data } = await profileRequest;
 
         data.id = data.uuid.replaceAll("-", "");
 
         if (data.textures?.skin != undefined) {
-          skin_data.skinurl = data.textures.skin.url;
-          skin_data.model = data.textures.slim ? "slim" : "default";
+          skinData.skinurl = data.textures.skin.url;
+          skinData.model = data.textures.slim ? "slim" : "default";
         }
 
         if (data.textures?.cape != undefined) {
-          skin_data.capeurl = data.textures.cape.url;
+          skinData.capeurl = data.textures.cape.url;
         }
 
-        return { uuid: data.id, display_name: data.username, skin_data };
+        return { uuid: data.id, display_name: data.username, skin_data: skinData };
       } catch (e) {
         if (isUuid) {
-          return { uuid, display_name: uuid, skin_data };
+          return { uuid, display_name: uuid, skin_data: skinData };
         } else {
           throw new Error(e?.response?.data?.reason ?? "Failed resolving username.");
         }
@@ -220,9 +241,9 @@ export async function resolveUsernameOrUuid(uuid, db, cacheOnly = false) {
   }
 
   if (user) {
-    return { uuid: user.uuid, display_name: user.username, emoji: user.emoji, skin_data };
+    return { uuid: user.uuid, display_name: user.username, emoji: user.emoji, skin_data: skinData };
   } else {
-    return { uuid, display_name: uuid, skin_data };
+    return { uuid, display_name: uuid, skin_data: skinData };
   }
 }
 
@@ -264,7 +285,7 @@ export async function getGuild(uuid, db, cacheOnly = false) {
   } else {
     if (guildMember == undefined || Date.now() - guildMember.last_updated > 7200 * 1000) {
       try {
-        const guildResponse = await Hypixel.get("guild", {
+        const guildResponse = await hypixel.get("guild", {
           params: { player: uuid, key: credentials.hypixel_api_key },
         });
 
@@ -345,7 +366,7 @@ export function getGuildLevel(xp) {
   let level = 0;
 
   while (true) {
-    const xpNeeded = constants.guild_xp[Math.min(constants.guild_xp.length - 1, level)];
+    const xpNeeded = GUILD_XP[Math.min(GUILD_XP.length - 1, level)];
 
     if (xp > xpNeeded) {
       xp -= xpNeeded;
@@ -363,34 +384,6 @@ export function getGuildLevel(xp) {
  */
 export function getRawLore(text) {
   return text.replaceAll(/§[0-9a-fk-or]/g, "");
-}
-
-/**
- * @param {string} word
- * @returns {string}
- * @example
- * // returns "Hello world"
- * capitalizeFirstLetter("hello world");
- */
-export function capitalizeFirstLetter(word) {
-  return word.charAt(0).toUpperCase() + word.slice(1);
-}
-
-/**
- * @param {string} word
- * @returns {string}
- * @example
- * // returns "Hello World"
- * capitalizeFirstLetter("hello world");
- */
-export function titleCase(string) {
-  let split = string.toLowerCase().split(" ");
-
-  for (let i = 0; i < split.length; i++) {
-    split[i] = split[i].charAt(0).toUpperCase() + split[i].substring(1);
-  }
-
-  return split.join(" ");
 }
 
 /**
@@ -459,7 +452,7 @@ export function getPrice(orderSummary) {
   return orders.reduce((mean, value) => mean + (value[0] * value[1]) / totalWeight, 0);
 }
 
-export function getPrices(product) {
+export function getBazaarPrices(product) {
   return {
     buyPrice: getPrice(product.buy_summary),
     sellPrice: getPrice(product.sell_summary),
@@ -472,16 +465,16 @@ export function getPrices(product) {
  * @returns {"S+"|"S"|"A"|"B"|"C"|"D"} letter grade
  */
 export function calcDungeonGrade(data) {
-  const total_score = data.score_exploration + data.score_speed + data.score_skill + data.score_bonus;
-  if (total_score <= 99) {
+  const totalScore = data.score_exploration + data.score_speed + data.score_skill + data.score_bonus;
+  if (totalScore <= 99) {
     return "D";
-  } else if (total_score <= 159) {
+  } else if (totalScore <= 159) {
     return "C";
-  } else if (total_score <= 229) {
+  } else if (totalScore <= 229) {
     return "B";
-  } else if (total_score <= 269) {
+  } else if (totalScore <= 269) {
     return "A";
-  } else if (total_score <= 299) {
+  } else if (totalScore <= 299) {
     return "S";
   } else {
     return "S+";
@@ -508,12 +501,12 @@ export function parseRank(player) {
     ? player.packageRank
     : "NONE";
 
-  if (constants.ranks[rankName]) {
-    const { tag, color, plus, plusColor } = constants.ranks[rankName];
+  if (RANKS[rankName]) {
+    const { tag, color, plus, plusColor } = RANKS[rankName];
     output.rankText = tag;
 
     if (rankName == "SUPERSTAR") {
-      output.rankColor = constants.color_names[player.monthlyRankColor] ?? color;
+      output.rankColor = COLOR_NAMES[player.monthlyRankColor] ?? color;
     } else {
       output.rankColor = color;
     }
@@ -522,7 +515,7 @@ export function parseRank(player) {
       output.plusText = plus;
 
       if (rankName == "SUPERSTAR" || rankName == "MVP_PLUS") {
-        output.plusColor = constants.color_names[player.rankPlusColor] ?? plusColor;
+        output.plusColor = COLOR_NAMES[player.rankPlusColor] ?? plusColor;
       } else {
         output.plusColor = plusColor;
       }
@@ -532,7 +525,7 @@ export function parseRank(player) {
   return output;
 }
 
-export const renderRank = ({ rankText, rankColor, plusText, plusColor }) => {
+export function renderRank({ rankText, rankColor, plusText, plusColor }) {
   if (rankText === null) {
     return "";
   } else {
@@ -547,7 +540,7 @@ export const renderRank = ({ rankText, rankColor, plusText, plusColor }) => {
         </div>
       `;
   }
-};
+}
 
 export async function updateRank(uuid, db) {
   let rank = {
@@ -562,7 +555,7 @@ export async function updateRank(uuid, db) {
 
   try {
     const response = await retry(async () => {
-      return await Hypixel.get("player", {
+      return await hypixel.get("player", {
         params: {
           key: credentials.hypixel_api_key,
           uuid,
@@ -582,7 +575,7 @@ export async function updateRank(uuid, db) {
       rank.achievements = player.achievements;
     }
 
-    let claimable = {
+    const claimable = {
       claimed_potato_talisman: "Potato Talisman",
       claimed_potato_basket: "Potato Basket",
       claim_potato_war_silver_medal: "Silver Medal (Potato War)",
@@ -616,14 +609,14 @@ export async function getRank(uuid, db, cacheOnly = false) {
 
   let hypixelPlayer = await db.collection("hypixelPlayers").findOne({ uuid });
 
-  let _updateRank;
+  let updateRankPromise;
 
   if (cacheOnly === false && (hypixelPlayer == undefined || +new Date() - hypixelPlayer.last_updated > 3600 * 1000)) {
-    _updateRank = updateRank(uuid, db);
+    updateRankPromise = updateRank(uuid, db);
   }
 
   if (cacheOnly === false && hypixelPlayer == undefined) {
-    hypixelPlayer = await _updateRank;
+    hypixelPlayer = await updateRankPromise;
   }
 
   hypixelPlayer ??= { achievements: {} };
@@ -638,17 +631,17 @@ export async function fetchMembers(profileId, db, returnUuid = false) {
   const members = await db.collection("members").find({ profile_id: profileId }).toArray();
 
   if (members.length == 0) {
-    let profileResponse = await Hypixel.get("skyblock/profile", {
+    const profileResponse = await hypixel.get("skyblock/profile", {
       params: { key: credentials.hypixel_api_key, profile: profileId },
     });
 
-    let memberPromises = [];
+    const memberPromises = [];
 
     for (const member in profileResponse.data.profile.members) {
       memberPromises.push(resolveUsernameOrUuid(member, db));
     }
 
-    let profileMembers = await Promise.all(memberPromises);
+    const profileMembers = await Promise.all(memberPromises);
 
     for (const profileMember of profileMembers) {
       await db
@@ -687,16 +680,14 @@ export function getClusterId(fullName = false) {
 }
 
 export const generateDebugId = (endpointName = "unknown") => {
-  return (
-    getClusterId() + "/" + endpointName + "_" + new Date().getTime() + "." + Math.floor(Math.random() * 9000 + 1000)
-  );
+  return `${getClusterId()}/${endpointName}_${Date.now()}.${Math.floor(Math.random() * 9000 + 1000)}`;
 };
 
 export function generateUUID() {
   let u = "",
     i = 0;
   while (i++ < 36) {
-    let c = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"[i - 1],
+    const c = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"[i - 1],
       r = (Math.random() * 16) | 0,
       v = c == "x" ? r : (r & 0x3) | 0x8;
     u += c == "-" || c == "4" ? c : v.toString(16);
@@ -718,7 +709,7 @@ export function parseItemGems(gems, rarity) {
   /** @type {Gem[]} */
 
   const slots = {
-    normal: Object.keys(constants.gemstones),
+    normal: Object.keys(GEMSTONES),
     special: ["UNIVERSAL", "COMBAT", "OFFENSIVE", "DEFENSIVE", "MINING"],
     ignore: ["unlocked_slots"],
   };
@@ -736,14 +727,14 @@ export function parseItemGems(gems, rarity) {
         slot_type,
         slot_number: +key.split("_")[1],
         gem_type: gems[`${key}_gem`],
-        gem_tier: value,
+        gem_tier: value?.quality || value,
       });
     } else if (slots.normal.includes(slot_type)) {
       parsed.push({
         slot_type,
         slot_number: +key.split("_")[1],
         gem_type: key.split("_")[0],
-        gem_tier: value,
+        gem_tier: value?.quality || value,
       });
     } else {
       throw new Error(`Error! Unknown gemstone slot key: ${key}`);
@@ -773,11 +764,11 @@ export function generateGemLore(type, tier, rarity) {
   const stats = [];
 
   // Gem color
-  const color = `§${constants.gemstones[type.toUpperCase()].color}`;
+  const color = `§${GEMSTONES[type.toUpperCase()].color}`;
 
   // Gem stats
   if (rarity) {
-    const gemstone_stats = constants.gemstones[type.toUpperCase()]?.stats?.[tier.toUpperCase()];
+    const gemstone_stats = GEMSTONES[type.toUpperCase()]?.stats?.[tier.toUpperCase()];
     if (gemstone_stats) {
       Object.keys(gemstone_stats).forEach((stat) => {
         let stat_value = gemstone_stats[stat][rarityNameToInt(rarity)];
@@ -789,7 +780,7 @@ export function generateGemLore(type, tier, rarity) {
         }
 
         if (stat_value) {
-          stats.push(["§", constants.stats_colors[stat], "+", stat_value, constants.stats_symbols[stat]].join(""));
+          stats.push(["§", STATS_DATA[stat].color, "+", stat_value, " ", STATS_DATA[stat].symbol].join(""));
         } else {
           stats.push("§c§oMISSING VALUE§r");
         }
@@ -808,17 +799,7 @@ export function generateGemLore(type, tier, rarity) {
 }
 
 export function rarityNameToInt(string) {
-  return constants.rarities.indexOf(string.toLowerCase());
-}
-
-/**
- * rounds a number to a certain number of decimal places
- * @param {number} num the number to be rounded
- * @param {number} decimals the number of decimal places to round to
- * @returns {number} the rounded number
- */
-export function round(num, decimals = 0) {
-  return Math.round(Math.pow(10, decimals) * num) / Math.pow(10, decimals);
+  return RARITIES.indexOf(string.toLowerCase());
 }
 
 /**
@@ -876,7 +857,7 @@ export function generateItem(data) {
   if (data.display_name && !data.tag.display.Name) {
     data.tag = data.tag ?? {};
     data.tag.display = data.tag.display ?? {};
-    const rarityColor = data.rarity ? `§${constants.rarityColors[data.rarity ?? "common"]}` : "";
+    const rarityColor = data.rarity ? `§${RARITY_COLORS[data.rarity ?? "common"]}` : "";
     data.tag.display.Name = `${rarityColor}${data.display_name}`;
   }
 
@@ -893,23 +874,14 @@ export function calcHotmTokens(hotmTier, potmTier) {
   let tokens = 0;
 
   for (let tier = 1; tier <= hotmTier; tier++) {
-    tokens += constants.hotm.rewards.hotm[tier]?.token_of_the_mountain || 0;
+    tokens += HOTM.rewards.hotm[tier]?.token_of_the_mountain || 0;
   }
 
   for (let tier = 1; tier <= potmTier; tier++) {
-    tokens += constants.hotm.rewards.potm[tier]?.token_of_the_mountain || 0;
+    tokens += HOTM.rewards.potm[tier]?.token_of_the_mountain || 0;
   }
 
   return tokens;
-}
-
-/**
- * removes Minecraft formatting codes from a string
- * @param {string} string
- * @returns {string}
- */
-export function removeFormatting(string) {
-  return string.replaceAll(/§[0-9a-z]/g, "");
 }
 
 /**
@@ -945,9 +917,9 @@ export function convertHMS(seconds, format = "clock", alwaysTwoDigits = false) {
 
 export function parseItemTypeFromLore(lore) {
   const regex = new RegExp(
-    `^(?<recomb>a )?(?<shiny>SHINY )?(?:(?<rarity>${constants.rarities
-      .map((x) => x.replaceAll("_", " ").toUpperCase())
-      .join("|")}) ?)(?<dungeon>DUNGEON )?(?<type>[A-Z ]+)?(?<recomb2>a)?$`
+    `^(?<recomb>a )?(?<shiny>SHINY )?(?:(?<rarity>${RARITIES.map((x) => x.replaceAll("_", " ").toUpperCase()).join(
+      "|"
+    )}) ?)(?<dungeon>DUNGEON )?(?<type>[A-Z ]+)?(?<recomb2>a)?$`
   );
 
   // Executing the regex on every lore line
@@ -983,10 +955,137 @@ export function parseItemTypeFromLore(lore) {
   };
 }
 
-function getCategoriesFromType(type) {
-  if (type in constants.typeToCategories) {
-    return constants.typeToCategories[type];
+export function getFolderPath() {
+  return path.dirname(fileURLToPath(import.meta.url));
+}
+
+export function getCacheFolderPath() {
+  return path.resolve(getFolderPath(), "../cache");
+}
+
+export function getCacheFilePath(dirPath, type, name, format = "png") {
+  // we don't care about folder optimization when we're developing
+  if (process.env?.NODE_ENV == "development") {
+    return path.resolve(dirPath, `${type}_${name}.${format}`);
   }
 
-  return ["unknown"];
+  const subdirs = [type];
+
+  // for texture and head type, we get the first 2 characters to split them further
+  if (type == "texture" || type == "head") {
+    subdirs.push(name.slice(0, 2));
+  }
+
+  // for potion and leather type, we get what variant they are to split them further
+  if (type == "leather" || type == "potion") {
+    subdirs.push(name.split("_")[0]);
+  }
+
+  // check if the entire folder path is available
+  if (!fs.pathExistsSync(path.resolve(dirPath, subdirs.join("/")))) {
+    // check if every subdirectory is available
+    for (let i = 1; i <= subdirs.length; i++) {
+      const checkDirs = subdirs.slice(0, i);
+      const checkPath = path.resolve(dirPath, checkDirs.join("/"));
+
+      if (!fs.pathExistsSync(checkPath)) {
+        fs.mkdirSync(checkPath);
+      }
+    }
+  }
+
+  return path.resolve(dirPath, `${subdirs.join("/")}/${type}_${name}.${format}`);
+}
+
+function getCategoriesFromType(type) {
+  return TYPE_TO_CATEGORIES[type] ?? ["unknown"];
+}
+
+export function generateDebugPets(type = "ALL") {
+  const pets = [];
+
+  for (const [petType, petData] of Object.entries(PET_DATA)) {
+    if (type !== "ALL" && petType !== type) {
+      continue;
+    }
+
+    for (const rarity of ["COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"]) {
+      pets.push(
+        {
+          type: petType,
+          active: false,
+          exp: 0,
+          tier: rarity,
+          candyUsed: 0,
+          heldItem: null,
+          skin: null,
+          uuid: generateUUID(),
+        },
+        {
+          type: petType,
+          active: false,
+          exp: getPetExp(petData.maxTier, (petData.maxLevel / 3) * 2),
+          tier: rarity,
+          candyUsed: 0,
+          heldItem: null,
+          skin: null,
+          uuid: generateUUID(),
+        },
+        {
+          type: petType,
+          active: false,
+          exp: 1000000000,
+          tier: rarity,
+          candyUsed: 0,
+          heldItem: null,
+          skin: null,
+          uuid: generateUUID(),
+        }
+      );
+    }
+  }
+
+  return pets;
+}
+
+/**
+ * @param  {string} rarity
+ * @param  {number} level
+ * @returns number
+ * @description takes rarity and level and returns the required pet exp to reach the level
+ */
+export function getPetExp(rarity, level) {
+  const rarityOffset = PET_RARITY_OFFSET[rarity.toLowerCase()];
+
+  return PET_LEVELS.slice(rarityOffset, rarityOffset + level - 1).reduce((prev, curr) => prev + curr, 0);
+}
+
+export function getAnimatedTexture(item) {
+  const results = ITEM_ANIMATIONS.filter((x) => x.id === getId(item));
+
+  if (results.length === 0) {
+    return false;
+  }
+
+  if (results.length === 1) {
+    return results[0];
+  }
+
+  const deepResults = results.filter((x) => {
+    if (!x.tags) {
+      return false;
+    }
+
+    return Object.entries(x.tags).every(([key, value]) => item.tag?.ExtraAttributes?.[key] === value);
+  });
+
+  return deepResults[0] ?? false;
+}
+
+export async function getItemPrice(item) {
+  if (!item) return 0;
+
+  const prices = await getPrices(true);
+
+  return prices[item.toLowerCase()] || prices[getId(item).toLowerCase()] || 0;
 }

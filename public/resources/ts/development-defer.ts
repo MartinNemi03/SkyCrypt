@@ -1,4 +1,4 @@
-import { allItems } from "./stats-defer";
+import { ALL_ITEMS } from "./stats-defer";
 
 // Announce dev mode in console
 console.log(
@@ -26,16 +26,17 @@ document.addEventListener("click", (e) => {
 
   if (element.hasAttribute("data-item-id")) {
     const itemId = element.getAttribute("data-item-id") as string;
-    item = allItems.get(itemId) as Item;
+    item = ALL_ITEMS.get(itemId) as Item;
   } else if (element.hasAttribute("data-pet-index")) {
     item = calculated.pets[parseInt(element.getAttribute("data-pet-index") as string)];
   } else if (element.hasAttribute("data-missing-pet-index")) {
     item = calculated.missingPets[parseInt(element.getAttribute("data-missing-pet-index") as string)];
-  } else if (element.hasAttribute("data-missing-talisman-index")) {
-    item = calculated.missingTalismans.missing[parseInt(element.getAttribute("data-missing-talisman-index") as string)];
-  } else if (element.hasAttribute("data-upgrade-talisman-index")) {
+  } else if (element.hasAttribute("data-missing-accessory-index")) {
     item =
-      calculated.missingTalismans.upgrades[parseInt(element.getAttribute("data-upgrade-talisman-index") as string)];
+      calculated.missingAccessories.missing[parseInt(element.getAttribute("data-missing-accessory-index") as string)];
+  } else if (element.hasAttribute("data-upgrade-accessory-index")) {
+    item =
+      calculated.missingAccessories.upgrades[parseInt(element.getAttribute("data-upgrade-accessory-index") as string)];
   }
 
   console.log(item);

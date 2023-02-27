@@ -54,8 +54,7 @@
   /* Normal Background */
   --bg: url(/resources/img/bg.webp);
 
-  /* Blurred Background */
-  --bg_blur: url(/resources/img/bg_blur.webp);
+  color-scheme: dark;
 
   &.light {
     --text-hex: black;
@@ -68,6 +67,8 @@
     --grey_background-rgb: 226, 226, 226;
     --lore_background-hex: #ffffffee;
     --bg-hex: white;
+
+    color-scheme: light;
   }
 
   .true-colors {
@@ -1015,6 +1016,7 @@ body {
   top: 0;
   bottom: 0;
   background-color: #121212d4;
+  -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
 
   .update-popup {

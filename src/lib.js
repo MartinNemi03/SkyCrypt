@@ -1,36 +1,30 @@
-import path from "path";
-import { fileURLToPath } from "url";
-import nbt from "prismarine-nbt";
-import util from "util";
-import sanitize from "mongo-sanitize";
-import minecraftData from "minecraft-data";
-const mcData = minecraftData("1.8.9");
-import _ from "lodash";
-import * as constants from "./constants.js";
-import * as helper from "./helper.js";
-const getId = helper.getId;
-import axios from "axios";
-import moment from "moment";
-import { v4 } from "uuid";
 import retry from "async-retry";
+import axios from "axios";
+import _ from "lodash";
+import minecraftData from "minecraft-data";
+import { getItemNetworth, getPreDecodedNetworth } from "skyhelper-networth";
+import moment from "moment";
+import sanitize from "mongo-sanitize";
+import path from "path";
+import nbt from "prismarine-nbt";
+import { fileURLToPath } from "url";
+import util from "util";
+import { v4 } from "uuid";
 
+import * as constants from "./constants.js";
 import credentials from "./credentials.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
+import { getTexture } from "./custom-resources.js";
+import * as helper from "./helper.js";
 import { db } from "./mongo.js";
-
-const Hypixel = axios.create({
-  baseURL: "https://api.hypixel.net/",
-});
-
 import { redisClient } from "./redis.js";
-
 import { calculateLilyWeight } from "./weight/lily-weight.js";
 import { calculateSenitherWeight } from "./weight/senither-weight.js";
-import { getTexture, packs } from "./custom-resources.js";
-import { makeLore } from "./lore-generator.js";
 
+const mcData = minecraftData("1.8.9");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const hypixel = axios.create({
+  baseURL: "https://api.hypixel.net/",
+});
 const parseNbt = util.promisify(nbt.parse);
 
 function getMinMax(profiles, min, ...path) {
@@ -59,11 +53,6 @@ function getMax(profiles, ...path) {
   return getMinMax(profiles, false, ...path);
 }
 
-// Commented out because it is never used
-// function getMin(profiles, ...path) {
-//   return getMinMax(profiles, true, ...path);
-// }
-
 function getAllKeys(profiles, ...path) {
   return _.uniq([].concat(...profiles.map((a) => _.keys(helper.getPath(a, ...path)))));
 }
@@ -76,15 +65,15 @@ function getAllKeys(profiles, ...path) {
 function getXpTable(type) {
   switch (type) {
     case "runecrafting":
-      return constants.runecrafting_xp;
+      return constants.RUNECRAFTING_XP;
     case "social":
-      return constants.social_xp;
+      return constants.SOCIAL_XP;
     case "dungeoneering":
-      return constants.dungeoneering_xp;
+      return constants.DUNGEONEERING_XP;
     case "hotm":
-      return constants.hotm_xp;
+      return constants.HOTM_XP;
     default:
-      return constants.leveling_xp;
+      return constants.LEVELING_XP;
   }
 }
 
@@ -105,10 +94,12 @@ function getXpByLevel(uncappedLevel, extra = {}) {
 
   /** the level that this player is caped at */
   const levelCap =
-    extra.cap ?? constants.default_skill_caps[extra.skill] ?? Math.max(...Object.keys(xpTable).map((a) => Number(a)));
+    extra.cap ??
+    Math.max(uncappedLevel, constants.DEFAULT_SKILL_CAPS[extra.skill]) ??
+    Math.max(...Object.keys(xpTable).map((a) => Number(a)));
 
   /** the maximum level that any player can achieve (used for gold progress bars) */
-  const maxLevel = constants.maxed_skill_caps[extra.skill] ?? levelCap;
+  const maxLevel = constants.MAXED_SKILL_CAPS[extra.skill] ?? levelCap;
 
   /** the amount of xp over the amount required for the level (used for calculation progress to next level) */
   const xpCurrent = 0;
@@ -162,10 +153,7 @@ export function getLevelByXp(xp, extra = {}) {
 
   /** the level that this player is caped at */
   const levelCap =
-    extra.cap ?? constants.default_skill_caps[extra.skill] ?? Math.max(...Object.keys(xpTable).map((a) => Number(a)));
-
-  /** the maximum level that any player can achieve (used for gold progress bars) */
-  const maxLevel = constants.maxed_skill_caps[extra.skill] ?? levelCap;
+    extra.cap ?? constants.DEFAULT_SKILL_CAPS[extra.skill] ?? Math.max(...Object.keys(xpTable).map((a) => Number(a)));
 
   /** the level ignoring the cap and using only the table */
   let uncappedLevel = 0;
@@ -184,20 +172,34 @@ export function getLevelByXp(xp, extra = {}) {
     }
   }
 
+  if (extra.type == "dungeoneering") {
+    while (xpCurrent >= 200_000_000) {
+      uncappedLevel++;
+      xpCurrent -= 200_000_000;
+    }
+  }
+
+  /** the maximum level that any player can achieve (used for gold progress bars) */
+  const maxLevel =
+    extra.type == "dungeoneering" && uncappedLevel > 50
+      ? uncappedLevel
+      : constants.MAXED_SKILL_CAPS[extra.skill] ?? levelCap;
+
   // not sure why this is floored but I'm leaving it in for now
   xpCurrent = Math.floor(xpCurrent);
 
   /** the level as displayed by in game UI */
-  const level = Math.min(levelCap, uncappedLevel);
+  const level = extra.type != "dungeoneering" ? Math.min(levelCap, uncappedLevel) : uncappedLevel;
 
   /** the amount amount of xp needed to reach the next level (used for calculation progress to next level) */
   const xpForNext = level < maxLevel ? Math.ceil(xpTable[level + 1]) : Infinity;
 
   /** the fraction of the way toward the next level */
-  const progress = Math.max(0, Math.min(xpCurrent / xpForNext, 1));
+  const progress = extra.type == "dungeoneering" && level >= 50 ? 1 : Math.max(0, Math.min(xpCurrent / xpForNext, 1));
 
   /** a floating point value representing the current level for example if you are half way to level 5 it would be 4.5 */
-  const levelWithProgress = level + progress;
+  const levelWithProgress =
+    extra.type == "dungeoneering" && level >= 50 ? level + xpCurrent / 200_000_000 : level + progress;
 
   /** a floating point value representing the current level ignoring the in-game unlockable caps for example if you are half way to level 5 it would be 4.5 */
   const unlockableLevelWithProgress = extra.cap ? Math.min(uncappedLevel + progress, maxLevel) : levelWithProgress;
@@ -217,13 +219,13 @@ export function getLevelByXp(xp, extra = {}) {
 }
 
 function getSlayerLevel(slayer, slayerName) {
-  let { xp, claimed_levels } = slayer;
+  const { xp, claimed_levels } = slayer;
 
   let currentLevel = 0;
   let progress = 0;
   let xpForNext = 0;
 
-  const maxLevel = Math.max(...Object.keys(constants.slayer_xp[slayerName]));
+  const maxLevel = Math.max(...Object.keys(constants.SLAYER_XP[slayerName]));
 
   for (const level_name in claimed_levels) {
     // Ignoring legacy levels for zombie
@@ -239,7 +241,7 @@ function getSlayerLevel(slayer, slayerName) {
   }
 
   if (currentLevel < maxLevel) {
-    const nextLevel = constants.slayer_xp[slayerName][currentLevel + 1];
+    const nextLevel = constants.SLAYER_XP[slayerName][currentLevel + 1];
 
     progress = xp / nextLevel;
     xpForNext = nextLevel;
@@ -250,9 +252,9 @@ function getSlayerLevel(slayer, slayerName) {
   return { currentLevel, xp, maxLevel, progress, xpForNext };
 }
 
-function getPetLevel(pet, maxLevel) {
-  const rarityOffset = constants.pet_rarity_offset[pet.rarity];
-  const levels = constants.pet_levels.slice(rarityOffset, rarityOffset + maxLevel - 1);
+function getPetLevel(petExp, offsetRarity, maxLevel) {
+  const rarityOffset = constants.PET_RARITY_OFFSET[offsetRarity];
+  const levels = constants.PET_LEVELS.slice(rarityOffset, rarityOffset + maxLevel - 1);
 
   const xpMaxLevel = levels.reduce((a, b) => a + b, 0);
   let xpTotal = 0;
@@ -263,7 +265,7 @@ function getPetLevel(pet, maxLevel) {
   for (let i = 0; i < maxLevel; i++) {
     xpTotal += levels[i];
 
-    if (xpTotal > pet.exp) {
+    if (xpTotal > petExp) {
       xpTotal -= levels[i];
       break;
     } else {
@@ -271,7 +273,7 @@ function getPetLevel(pet, maxLevel) {
     }
   }
 
-  let xpCurrent = Math.floor(pet.exp - xpTotal);
+  let xpCurrent = Math.floor(petExp - xpTotal);
   let progress;
 
   if (level < maxLevel) {
@@ -279,7 +281,7 @@ function getPetLevel(pet, maxLevel) {
     progress = Math.max(0, Math.min(xpCurrent / xpForNext, 1));
   } else {
     level = maxLevel;
-    xpCurrent = pet.exp - levels[maxLevel - 1];
+    xpCurrent = petExp - levels[maxLevel - 1];
     xpForNext = 0;
     progress = 1;
   }
@@ -293,76 +295,13 @@ function getPetLevel(pet, maxLevel) {
   };
 }
 
-/**
- * @param  {string} rarity
- * @param  {number} level
- * @returns number
- * @description takes rarity and level and returns the required pet exp to reach the level
- */
-function getPetExp(rarity, level) {
-  const rarityOffset = constants.pet_rarity_offset[rarity.toLowerCase()];
-
-  return constants.pet_levels.slice(rarityOffset, rarityOffset + level - 1).reduce((prev, curr) => prev + curr, 0);
-}
-
-function getFairyBonus(fairyExchanges) {
-  const bonus = Object.assign({}, constants.stat_template);
-
-  bonus.speed = Math.floor(fairyExchanges / 10);
-
-  for (let i = 0; i < fairyExchanges; i++) {
-    bonus.strength += (i + 1) % 5 == 0 ? 2 : 1;
-    bonus.defense += (i + 1) % 5 == 0 ? 2 : 1;
-    bonus.health += 3 + Math.floor(i / 2);
-  }
-
-  return bonus;
-}
-
-function getBonusStat(level, skill, max, incremention) {
-  let skill_stats = constants.bonus_stats[skill];
-  let steps = Object.keys(skill_stats)
-    .sort((a, b) => Number(a) - Number(b))
-    .map((a) => Number(a));
-
-  let bonus = Object.assign({}, constants.stat_template);
-
-  for (let x = steps[0]; x <= max; x += incremention) {
-    if (level < x) {
-      break;
-    }
-
-    let skill_step = steps
-      .slice()
-      .reverse()
-      .find((a) => a <= x);
-
-    let skill_bonus = skill_stats[skill_step];
-
-    for (let skill in skill_bonus) {
-      bonus[skill] += skill_bonus[skill];
-    }
-  }
-
-  return bonus;
-}
-
-// Calculate total health with defense
-export function getEffectiveHealth(health, defense) {
-  if (defense <= 0) {
-    return health;
-  }
-
-  return Math.round(health * (1 + defense / 100));
-}
-
 async function getBackpackContents(arraybuf) {
-  let buf = Buffer.from(arraybuf);
+  const buf = Buffer.from(arraybuf);
 
   let data = await parseNbt(buf);
   data = nbt.simplify(data);
 
-  let items = data.i;
+  const items = data.i;
 
   for (const [index, item] of items.entries()) {
     item.isInactive = true;
@@ -373,29 +312,10 @@ async function getBackpackContents(arraybuf) {
   return items;
 }
 
-const potionColors = {
-  0: "375cc4", // None
-  1: "cb5ba9", // Regeneration
-  2: "420a09", // Speed
-  3: "e19839", // Poison
-  4: "4d9130", // Fire Resistance
-  5: "f52423", // Instant Health
-  6: "1f1f9e", // Night Vision
-  7: "22fc4b", // Jump Boost
-  8: "474c47", // Weakness
-  9: "912423", // Strength
-  10: "5c6e83", // Slowness
-  11: "f500f5", // Uncraftable
-  12: "420a09", // Instant Damage
-  13: "2f549c", // Water Breathing
-  14: "818595", // Invisibility
-  15: "f500f5", // Uncraftable
-};
-
 // Process items returned by API
-async function processItems(base64, customTextures = false, packs, cacheOnly = false) {
+async function processItems(base64, source, customTextures = false, packs, cacheOnly = false) {
   // API stores data as base64 encoded gzipped Minecraft NBT data
-  let buf = Buffer.from(base64, "base64");
+  const buf = Buffer.from(base64, "base64");
 
   let data = await parseNbt(buf);
   data = nbt.simplify(data);
@@ -418,7 +338,7 @@ async function processItems(base64, customTextures = false, packs, cacheOnly = f
         continue;
       }
 
-      let backpackContents = await getBackpackContents(backpackData);
+      const backpackContents = await getBackpackContents(backpackData);
 
       for (const backpackItem of backpackContents) {
         backpackItem.backpackIndex = index;
@@ -446,20 +366,48 @@ async function processItems(base64, customTextures = false, packs, cacheOnly = f
       }
     }
 
+    if (item.tag?.ExtraAttributes?.model != undefined) {
+      item.extra.model = item.tag.ExtraAttributes.model;
+    }
+
     if (item.tag?.ExtraAttributes?.hot_potato_count != undefined) {
       item.extra.hpbs = item.tag.ExtraAttributes.hot_potato_count;
     }
 
     if (item.tag?.ExtraAttributes?.expertise_kills != undefined) {
-      let { expertise_kills } = item.tag.ExtraAttributes;
+      const { expertise_kills } = item.tag.ExtraAttributes;
 
       if (expertise_kills > 0) {
         item.extra.expertise_kills = expertise_kills;
       }
     }
 
+    if (item.tag?.ExtraAttributes?.hecatomb_s_runs != undefined) {
+      const { hecatomb_s_runs } = item.tag.ExtraAttributes;
+
+      if (hecatomb_s_runs > 0) {
+        item.extra.hecatomb_s_runs = hecatomb_s_runs;
+      }
+    }
+
+    if (item.tag?.ExtraAttributes?.champion_combat_xp != undefined) {
+      const { champion_combat_xp } = item.tag.ExtraAttributes;
+
+      if (champion_combat_xp > 0) {
+        item.extra.champion_combat_xp = champion_combat_xp;
+      }
+    }
+
+    if (item.tag?.ExtraAttributes?.farmed_cultivating != undefined) {
+      const { farmed_cultivating } = item.tag.ExtraAttributes;
+
+      if (farmed_cultivating > 0) {
+        item.extra.farmed_cultivating = farmed_cultivating;
+      }
+    }
+
     if (item.tag?.ExtraAttributes?.blocks_walked != undefined) {
-      let { blocks_walked } = item.tag.ExtraAttributes;
+      const { blocks_walked } = item.tag.ExtraAttributes;
 
       if (blocks_walked > 0) {
         item.extra.blocks_walked = blocks_walked;
@@ -467,7 +415,7 @@ async function processItems(base64, customTextures = false, packs, cacheOnly = f
     }
 
     if (item.tag?.ExtraAttributes?.timestamp != undefined) {
-      let timestamp = item.tag.ExtraAttributes.timestamp;
+      const timestamp = item.tag.ExtraAttributes.timestamp;
 
       if (!isNaN(timestamp)) {
         item.extra.timestamp = timestamp;
@@ -533,7 +481,7 @@ async function processItems(base64, customTextures = false, packs, cacheOnly = f
 
     // Set custom texture for colored potions
     if (item.id == 373) {
-      const color = potionColors[item.Damage % 16];
+      const color = constants.POTION_COLORS[item.Damage % 16];
 
       const type = item.Damage & 16384 ? "splash" : "normal";
 
@@ -543,25 +491,6 @@ async function processItems(base64, customTextures = false, packs, cacheOnly = f
     // Set raw display name without color and formatting codes
     if (item.tag?.display?.Name != undefined) {
       item.display_name = helper.getRawLore(item.tag.display.Name);
-    }
-
-    if (item.tag?.ExtraAttributes?.dungeon_item_level > 0) {
-      const dungeonItemLevel = item.tag.ExtraAttributes.dungeon_item_level;
-      let newStars = null;
-
-      switch (true) {
-        case dungeonItemLevel <= 5:
-          newStars = "✪".repeat(dungeonItemLevel);
-          break;
-        case dungeonItemLevel <= 10:
-          newStars = "⍟".repeat(dungeonItemLevel - 5) + "✪".repeat(5 - (dungeonItemLevel - 5));
-          break;
-        default:
-          newStars = "✪".repeat(dungeonItemLevel);
-          break;
-      }
-
-      item.display_name = item.display_name.replace(/(✪+)/, newStars);
     }
 
     // Resolve skull textures to their image path
@@ -580,18 +509,23 @@ async function processItems(base64, customTextures = false, packs, cacheOnly = f
       }
     }
 
+    const animatedTexture = helper.getAnimatedTexture(item);
+
     // Gives animated texture on certain items, will be overwritten by custom textures
-    if (constants.animated_items?.[getId(item)]) {
-      item.texture_path = constants.animated_items[getId(item)].texture;
+    if (animatedTexture) {
+      item.texture_path = animatedTexture.texture;
     }
 
     // Uses animated skin texture
-    if (item?.extra?.skin != undefined && constants.animated_items?.[item.extra.skin]) {
-      item.texture_path = constants.animated_items[item.extra.skin].texture;
+    if (item?.extra?.skin != undefined && constants.ANIMATED_ITEMS?.[item.extra.skin]) {
+      item.texture_path = constants.ANIMATED_ITEMS[item.extra.skin].texture;
     }
 
     if (item.tag?.ExtraAttributes?.skin == undefined && customTextures) {
-      const customTexture = await getTexture(item, false, packs);
+      const customTexture = await getTexture(item, {
+        ignore_id: false,
+        pack_ids: packs,
+      });
 
       if (customTexture) {
         item.animated = customTexture.animated;
@@ -602,18 +536,24 @@ async function processItems(base64, customTextures = false, packs, cacheOnly = f
       }
     }
 
-    // Lore stuff
-    let itemLore = item?.tag?.display?.Lore ?? [];
-    let lore_raw = [...itemLore];
+    if (source !== undefined) {
+      item.extra ??= {};
+      item.extra.source = source
+        .split(" ")
+        .map((a) => a.charAt(0).toUpperCase() + a.slice(1))
+        .join(" ");
+    }
 
-    let lore = lore_raw != null ? lore_raw.map((a) => (a = helper.getRawLore(a))) : [];
+    // Lore stuff
+    const itemLore = item?.tag?.display?.Lore ?? [];
+    const lore_raw = [...itemLore];
+
+    const lore = lore_raw != null ? lore_raw.map((a) => (a = helper.getRawLore(a))) : [];
 
     item.rarity = null;
     item.categories = [];
 
     if (lore.length > 0) {
-      // todo: support `item.localized = boolean` when skyblock will support multilanguage
-
       // item categories, rarity, recombobulated, dungeon, shiny
       const itemType = helper.parseItemTypeFromLore(lore);
 
@@ -625,43 +565,6 @@ async function processItems(base64, customTextures = false, packs, cacheOnly = f
       if (item.id == 358) {
         item.id = 395;
         item.Damage = 0;
-      }
-
-      item.stats = {};
-
-      // Get item stats from lore
-      // we need to use lore_raw so we can get the hpbs (since what part is hpbs depend on color)
-      lore_raw.forEach((line) => {
-        const split = helper.getRawLore(line).split(":");
-
-        if (split.length < 2) {
-          return;
-        }
-
-        const statType = split[0];
-        const statValue = parseFloat(split[1].trim().replaceAll(",", ""));
-
-        if (statType in constants.statNames) {
-          item.stats[constants.statNames[statType]] = statValue;
-        }
-      });
-
-      // Apply Speed Talisman speed bonuses
-      if (getId(item) == "SPEED_TALISMAN") {
-        item.stats.speed = 1;
-      }
-
-      if (getId(item) == "SPEED_RING") {
-        item.stats.speed = 3;
-      }
-
-      if (getId(item) == "SPEED_ARTIFACT") {
-        item.stats.speed = 5;
-      }
-
-      // Apply Frozen Chicken bonus
-      if (getId(item) == "FROZEN_CHICKEN") {
-        item.stats.speed = 1;
       }
     }
 
@@ -680,41 +583,101 @@ async function processItems(base64, customTextures = false, packs, cacheOnly = f
       }
 
       if (item.extra?.expertise_kills) {
-        let expertise_kills = item.extra.expertise_kills;
+        const expertise_kills = item.extra.expertise_kills;
 
         if (lore_raw) {
-          itemLore.push("", `§7Expertise Kills: §c${expertise_kills}`);
+          itemLore.push("", `§7Expertise Kills: §c${expertise_kills.toLocaleString()}`);
           if (expertise_kills >= 15000) {
             itemLore.push(`§8MAXED OUT!`);
           } else {
             let toNextLevel = 0;
-            for (const e of constants.expertise_kills_ladder) {
+            for (const e of constants.EXPERTISE_KILLS_LADDER) {
               if (expertise_kills < e) {
                 toNextLevel = e - expertise_kills;
                 break;
               }
             }
-            itemLore.push(`§8${toNextLevel} kills to tier up!`);
+            itemLore.push(`§8${toNextLevel.toLocaleString()} kills to tier up!`);
+          }
+        }
+      }
+
+      if (item.extra?.hecatomb_s_runs) {
+        const hecatomb_s_runs = item.extra.hecatomb_s_runs;
+
+        if (lore_raw) {
+          itemLore.push("", `§7Hecatomb Runs: §c${hecatomb_s_runs.toLocaleString()}`);
+          if (hecatomb_s_runs >= 100) {
+            itemLore.push(`§8MAXED OUT!`);
+          } else {
+            let toNextLevel = 0;
+            for (const e of constants.hecatomb_s_runs_ladder) {
+              if (hecatomb_s_runs < e) {
+                toNextLevel = e - hecatomb_s_runs;
+                break;
+              }
+            }
+            itemLore.push(`§8${toNextLevel.toLocaleString()} runs to tier up!`);
+          }
+        }
+      }
+
+      if (item.extra?.champion_combat_xp) {
+        const champion_combat_xp = Math.floor(item.extra.champion_combat_xp);
+
+        if (lore_raw) {
+          itemLore.push("", `§7Champion XP: §c${champion_combat_xp.toLocaleString()}`);
+          if (champion_combat_xp >= 3000000) {
+            itemLore.push(`§8MAXED OUT!`);
+          } else {
+            let toNextLevel = 0;
+            for (const e of constants.champion_xp_ladder) {
+              if (champion_combat_xp < e) {
+                toNextLevel = Math.floor(e - champion_combat_xp);
+                break;
+              }
+            }
+            itemLore.push(`§8${toNextLevel.toLocaleString()} xp to tier up!`);
+          }
+        }
+      }
+
+      if (item.extra?.farmed_cultivating) {
+        const farmed_cultivating = Math.floor(item.extra.farmed_cultivating);
+
+        if (lore_raw) {
+          itemLore.push("", `§7Cultivating Crops: §c${farmed_cultivating.toLocaleString()}`);
+          if (farmed_cultivating >= 100000000) {
+            itemLore.push(`§8MAXED OUT!`);
+          } else {
+            let toNextLevel = 0;
+            for (const e of constants.cultivating_crops_ladder) {
+              if (farmed_cultivating < e) {
+                toNextLevel = Math.floor(e - farmed_cultivating);
+                break;
+              }
+            }
+            itemLore.push(`§8${toNextLevel.toLocaleString()} crops to tier up!`);
           }
         }
       }
 
       if (item.extra?.blocks_walked) {
-        let blocks_walked = item.extra.blocks_walked;
+        const blocks_walked = item.extra.blocks_walked;
 
         if (lore_raw) {
-          itemLore.push("", `§7Blocks Walked: §c${blocks_walked}`);
+          itemLore.push("", `§7Blocks Walked: §c${blocks_walked.toLocaleString()}`);
           if (blocks_walked >= 100000) {
             itemLore.push(`§8MAXED OUT!`);
           } else {
             let toNextLevel = 0;
-            for (const e of constants.prehistoric_egg_blocks_walked_ladder) {
+            for (const e of constants.PREHISTORIC_EGG_BLOCKS_WALKED_LADDER) {
               if (blocks_walked < e) {
                 toNextLevel = e - blocks_walked;
                 break;
               }
             }
-            itemLore.push(`§8Walk ${toNextLevel} blocks to tier up!`);
+            itemLore.push(`§8Walk ${toNextLevel.toLocaleString()} blocks to tier up!`);
           }
         }
       }
@@ -755,6 +718,31 @@ async function processItems(base64, customTextures = false, packs, cacheOnly = f
       }
     }
 
+    if (item?.tag || item?.exp) {
+      if (item.tag?.ExtraAttributes?.id === "PET") {
+        item.tag.ExtraAttributes.petInfo =
+          JSON.stringify(item.tag.ExtraAttributes.petInfo) ?? item.tag.ExtraAttributes.petInfo;
+      }
+
+      const ITEM_PRICE = await getItemNetworth(item, { cache: true });
+
+      if (ITEM_PRICE?.price > 0) {
+        itemLore.push(
+          "",
+          `§7Item Value: §6${Math.round(ITEM_PRICE.price).toLocaleString()} Coins §7(§6${helper.formatNumber(
+            ITEM_PRICE.price
+          )}§7)`
+        );
+      }
+
+      if (item.tag?.ExtraAttributes?.id === "PET") {
+        item.tag.ExtraAttributes.petInfo =
+          typeof item.tag.ExtraAttributes.petInfo === "string"
+            ? JSON.parse(item.tag.ExtraAttributes.petInfo)
+            : item.tag.ExtraAttributes.petInfo;
+      }
+    }
+
     if (!("display_name" in item) && "id" in item) {
       const vanillaItem = mcData.items[item.id];
 
@@ -764,7 +752,7 @@ async function processItems(base64, customTextures = false, packs, cacheOnly = f
     }
   }
 
-  for (let item of items) {
+  for (const item of items) {
     if (item.inBackpack) {
       items[item.backpackIndex].containsItems.push(Object.assign({}, item));
     }
@@ -775,7 +763,7 @@ async function processItems(base64, customTextures = false, packs, cacheOnly = f
   return items;
 }
 
-export function getMinions(coopMembers) {
+function getMinions(coopMembers) {
   const minions = [];
 
   const craftedGenerators = [];
@@ -798,16 +786,16 @@ export function getMinions(coopMembers) {
 
     if (minion == undefined) {
       minions.push(
-        Object.assign({ id: minionName, maxLevel: 0, levels: [minionLevel] }, constants.minions[minionName])
+        Object.assign({ id: minionName, maxLevel: 0, levels: [minionLevel] }, constants.MINIONS[minionName])
       );
     } else {
       minion.levels.push(minionLevel);
     }
   }
 
-  for (const minion in constants.minions) {
+  for (const minion in constants.MINIONS) {
     if (minions.find((a) => a.id == minion) == undefined) {
-      minions.push(Object.assign({ id: minion, levels: [], maxLevel: 0 }, constants.minions[minion]));
+      minions.push(Object.assign({ id: minion, levels: [], maxLevel: 0 }, constants.MINIONS[minion]));
     }
   }
 
@@ -824,7 +812,7 @@ export function getMinions(coopMembers) {
   return minions;
 }
 
-export function getMinionSlots(minions) {
+function getMinionSlots(minions) {
   let uniqueMinions = 0;
 
   for (const minion of minions) {
@@ -833,14 +821,14 @@ export function getMinionSlots(minions) {
 
   const output = { currentSlots: 5, toNext: 5 };
 
-  const uniquesRequired = Object.keys(constants.minion_slots).sort((a, b) => parseInt(a) - parseInt(b));
+  const uniquesRequired = Object.keys(constants.MINION_SLOTS).sort((a, b) => parseInt(a) - parseInt(b));
 
   for (const [index, uniques] of uniquesRequired.entries()) {
     if (parseInt(uniques) <= uniqueMinions) {
       continue;
     }
 
-    output.currentSlots = constants.minion_slots[uniquesRequired[index - 1]];
+    output.currentSlots = constants.MINION_SLOTS[uniquesRequired[index - 1]];
     output.toNextSlot = uniquesRequired[index] - uniqueMinions;
     break;
   }
@@ -857,56 +845,77 @@ export const getItems = async (
   const output = {};
 
   console.debug(`${options.debugId}: getItems called.`);
-  const timeStarted = new Date().getTime();
+  const timeStarted = Date.now();
 
   // Process inventories returned by API
-  let armor =
-    "inv_armor" in profile ? await processItems(profile.inv_armor.data, customTextures, packs, options.cacheOnly) : [];
-  let inventory =
-    "inv_contents" in profile
-      ? await processItems(profile.inv_contents.data, customTextures, packs, options.cacheOnly)
+  const armor =
+    "inv_armor" in profile
+      ? await processItems(profile.inv_armor.data, "armor", customTextures, packs, options.cacheOnly)
       : [];
-  let wardrobe_inventory =
+  const equipment =
+    "equippment_contents" in profile
+      ? await processItems(profile.equippment_contents.data, "equipment", customTextures, packs, options.cacheOnly)
+      : [];
+  const inventory =
+    "inv_contents" in profile
+      ? await processItems(profile.inv_contents.data, "inventory", customTextures, packs, options.cacheOnly)
+      : [];
+  const wardrobe_inventory =
     "wardrobe_contents" in profile
-      ? await processItems(profile.wardrobe_contents.data, customTextures, packs, options.cacheOnly)
+      ? await processItems(profile.wardrobe_contents.data, "wardrobe", customTextures, packs, options.cacheOnly)
       : [];
   let enderchest =
     "ender_chest_contents" in profile
-      ? await processItems(profile.ender_chest_contents.data, customTextures, packs, options.cacheOnly)
+      ? await processItems(profile.ender_chest_contents.data, "ender chest", customTextures, packs, options.cacheOnly)
       : [];
-  let talisman_bag =
+  const accessory_bag =
     "talisman_bag" in profile
-      ? await processItems(profile.talisman_bag.data, customTextures, packs, options.cacheOnly)
+      ? await processItems(profile.talisman_bag.data, "accessory bag", customTextures, packs, options.cacheOnly)
       : [];
-  let fishing_bag =
+  const fishing_bag =
     "fishing_bag" in profile
-      ? await processItems(profile.fishing_bag.data, customTextures, packs, options.cacheOnly)
+      ? await processItems(profile.fishing_bag.data, "fishing bag", customTextures, packs, options.cacheOnly)
       : [];
-  let quiver =
-    "quiver" in profile ? await processItems(profile.quiver.data, customTextures, packs, options.cacheOnly) : [];
-  let potion_bag =
+  const quiver =
+    "quiver" in profile
+      ? await processItems(profile.quiver.data, "quiver", customTextures, packs, options.cacheOnly)
+      : [];
+  const potion_bag =
     "potion_bag" in profile
-      ? await processItems(profile.potion_bag.data, customTextures, packs, options.cacheOnly)
+      ? await processItems(profile.potion_bag.data, "potion bag", customTextures, packs, options.cacheOnly)
       : [];
-  let candy_bag =
+  const candy_bag =
     "candy_inventory_contents" in profile
-      ? await processItems(profile.candy_inventory_contents.data, customTextures, packs, options.cacheOnly)
+      ? await processItems(profile.candy_inventory_contents.data, "candy bag", customTextures, packs, options.cacheOnly)
       : [];
-  let personal_vault =
+  const personal_vault =
     "personal_vault_contents" in profile
-      ? await processItems(profile.personal_vault_contents.data, customTextures, packs, options.cacheOnly)
+      ? await processItems(
+          profile.personal_vault_contents.data,
+          "personal vault",
+          customTextures,
+          packs,
+          options.cacheOnly
+        )
       : [];
 
   let storage = [];
   if (profile.backpack_contents) {
-    const storage_size = Math.max(18, Object.keys(profile.backpack_contents).length);
-    for (let slot = 0; slot < storage_size; slot++) {
+    const storageSize = Math.max(18, Object.keys(profile.backpack_contents).length);
+    for (let slot = 0; slot < storageSize; slot++) {
       storage.push({});
 
       if (profile.backpack_contents[slot] && profile.backpack_icons[slot]) {
-        const icon = await processItems(profile.backpack_icons[slot].data, customTextures, packs, options.cacheOnly);
+        const icon = await processItems(
+          profile.backpack_icons[slot].data,
+          "storage",
+          customTextures,
+          packs,
+          options.cacheOnly
+        );
         const items = await processItems(
           profile.backpack_contents[slot].data,
+          "storage",
           customTextures,
           packs,
           options.cacheOnly
@@ -918,26 +927,26 @@ export const getItems = async (
           item.item_index = index;
         }
 
-        const storage_unit = icon[0];
-        storage_unit.containsItems = items;
-        storage[slot] = storage_unit;
+        const storageUnit = icon[0];
+        storageUnit.containsItems = items;
+        storage[slot] = storageUnit;
       }
     }
   }
 
   const wardrobeColumns = wardrobe_inventory.length / 4;
 
-  let wardrobe = [];
+  const wardrobe = [];
 
   for (let i = 0; i < wardrobeColumns; i++) {
-    let page = Math.floor(i / 9);
+    const page = Math.floor(i / 9);
 
-    let wardrobeSlot = [];
+    const wardrobeSlot = [];
 
     for (let j = 0; j < 4; j++) {
-      let index = 36 * page + (i % 9) + j * 9;
+      const index = 36 * page + (i % 9) + j * 9;
 
-      if (getId(wardrobe_inventory[index]).length > 0) {
+      if (helper.getId(wardrobe_inventory[index]).length > 0) {
         wardrobeSlot.push(wardrobe_inventory[index]);
       } else {
         wardrobeSlot.push(null);
@@ -952,22 +961,25 @@ export const getItems = async (
   let hotm = "mining_core" in profile ? await getHotmItems(profile, packs) : [];
 
   output.armor = armor.filter((x) => x.rarity);
+  output.equipment = equipment.filter((x) => x.rarity);
   output.wardrobe = wardrobe;
   output.wardrobe_inventory = wardrobe_inventory;
   output.inventory = inventory;
   output.enderchest = enderchest;
-  output.talisman_bag = talisman_bag;
+  output.accessory_bag = accessory_bag;
   output.fishing_bag = fishing_bag;
   output.quiver = quiver;
   output.potion_bag = potion_bag;
   output.personal_vault = personal_vault;
   output.storage = storage;
   output.hotm = hotm;
+  output.candy_bag = candy_bag;
 
-  const all_items = armor.concat(
+  const allItems = armor.concat(
+    equipment,
     inventory,
     enderchest,
-    talisman_bag,
+    accessory_bag,
     fishing_bag,
     quiver,
     potion_bag,
@@ -977,7 +989,7 @@ export const getItems = async (
     hotm
   );
 
-  for (const [index, item] of all_items.entries()) {
+  for (const [index, item] of allItems.entries()) {
     item.item_index = index;
     item.itemId = v4("itemId");
 
@@ -995,82 +1007,104 @@ export const getItems = async (
   hotm = hotm.map((a) => Object.assign({ isInactive: true }, a));
 
   // Add candy bag contents as backpack contents to candy bag
-  for (let item of all_items) {
-    if (getId(item) == "TRICK_OR_TREAT_BAG") {
+  for (const item of allItems) {
+    if (helper.getId(item) == "TRICK_OR_TREAT_BAG") {
       item.containsItems = candy_bag;
     }
   }
 
-  const talismans = [];
-  const talisman_ids = [];
+  const accessories = [];
+  const accessoryIds = [];
+  const accessoryRarities = {
+    common: 0,
+    uncommon: 0,
+    rare: 0,
+    epic: 0,
+    legendary: 0,
+    mythic: 0,
+    special: 0,
+    very_special: 0,
+    hegemony: null,
+    abicase: null,
+  };
 
-  // Modify talismans on armor and add
-  for (const talisman of armor.filter((a) => a.categories.includes("accessory"))) {
-    const id = getId(talisman);
-
-    if (id === "") {
-      continue;
-    }
-
-    const insertTalisman = Object.assign({ isUnique: true, isInactive: false }, talisman);
-
-    if (talismans.find((a) => !a.isInactive && getId(a) == id) != undefined) {
-      insertTalisman.isInactive = true;
-    }
-
-    if (talismans.find((a) => getId(a) == id) != undefined) {
-      insertTalisman.isUnique = false;
-    }
-
-    talismans.push(insertTalisman);
-    talisman_ids.push(id);
-  }
-
-  // Add talismans from inventory
-  for (const talisman of inventory.filter((a) => a.categories.includes("accessory"))) {
-    const id = getId(talisman);
+  // Modify accessories on armor and add
+  for (const accessory of armor.filter((a) => a.categories.includes("accessory"))) {
+    const id = helper.getId(accessory);
 
     if (id === "") {
       continue;
     }
 
-    const insertTalisman = Object.assign({ isUnique: true, isInactive: false }, talisman);
+    const insertAccessory = Object.assign({ isUnique: true, isInactive: false }, accessory);
 
-    if (talismans.find((a) => !a.isInactive && getId(a) == id) != undefined) {
-      insertTalisman.isInactive = true;
+    if (accessories.find((a) => !a.isInactive && helper.getId(a) == id) != undefined) {
+      insertAccessory.isInactive = true;
     }
 
-    if (talismans.find((a) => getId(a) == id) != undefined) {
-      insertTalisman.isUnique = false;
+    if (accessories.find((a) => helper.getId(a) == id) != undefined) {
+      insertAccessory.isUnique = false;
     }
 
-    talismans.push(insertTalisman);
-    talisman_ids.push(id);
+    accessories.push(insertAccessory);
+    accessoryIds.push(id);
   }
 
-  // Add talismans from accessory bag if not already in inventory
-  for (const talisman of talisman_bag) {
-    const id = getId(talisman);
+  // Add accessories from inventory
+  for (const accessory of inventory.filter((a) => a.categories.includes("accessory"))) {
+    const id = helper.getId(accessory);
 
     if (id === "") {
       continue;
     }
 
-    const insertTalisman = Object.assign({ isUnique: true, isInactive: false }, talisman);
+    const insertAccessory = Object.assign({ isUnique: true, isInactive: false }, accessory);
 
-    if (talismans.find((a) => !a.isInactive && getId(a) == id) != undefined) {
-      insertTalisman.isInactive = true;
+    if (accessories.find((a) => !a.isInactive && helper.getId(a) == id) != undefined) {
+      insertAccessory.isInactive = true;
     }
 
-    if (talismans.find((a) => getId(a) == id) != undefined) {
-      insertTalisman.isUnique = false;
+    if (accessories.find((a) => helper.getId(a) == id) != undefined) {
+      insertAccessory.isUnique = false;
     }
 
-    talismans.push(insertTalisman);
-    talisman_ids.push(id);
+    accessories.push(insertAccessory);
+    accessoryIds.push(id);
   }
 
-  // Add inactive talismans from enderchest and backpacks
+  // Add accessories from accessory bag if not already in inventory
+  for (const accessory of accessory_bag) {
+    const id = helper.getId(accessory);
+
+    if (id === "") {
+      continue;
+    }
+
+    const insertAccessory = Object.assign({ isUnique: true, isInactive: false }, accessory);
+
+    if (accessories.find((a) => !a.isInactive && helper.getId(a) == id) != undefined) {
+      insertAccessory.isInactive = true;
+    }
+
+    if (accessories.find((a) => helper.getId(a) == id) != undefined) {
+      insertAccessory.isUnique = false;
+    }
+
+    accessories.push(insertAccessory);
+    accessoryIds.push(id);
+    accessoryRarities[insertAccessory.rarity]++;
+    if (insertAccessory.isInactive === false) {
+      accessoryRarities[insertAccessory.rarity]++;
+      if (id == "HEGEMONY_ARTIFACT") {
+        accessoryRarities.hegemony = { rarity: insertAccessory.rarity };
+      }
+      if (id === "ABICASE") {
+        accessoryRarities.abicase = { model: insertAccessory.extra?.model };
+      }
+    }
+  }
+
+  // Add inactive accessories from enderchest and backpacks
   for (const item of inventory.concat(enderchest, storage)) {
     // filter out filler or empty slots (such as empty storage slot)
     if (!("categories" in item)) {
@@ -1083,117 +1117,107 @@ export const getItems = async (
       items = item.containsItems.slice(0);
     }
 
-    for (const talisman of items.filter((a) => a.categories.includes("accessory"))) {
-      const id = getId(talisman);
+    for (const accessory of items.filter((a) => a.categories.includes("accessory"))) {
+      const id = helper.getId(accessory);
 
-      const insertTalisman = Object.assign({ isUnique: true, isInactive: true }, talisman);
+      const insertAccessory = Object.assign({ isUnique: true, isInactive: true }, accessory);
 
-      if (talismans.find((a) => getId(a) == id) != undefined) {
-        insertTalisman.isUnique = false;
+      if (accessories.find((a) => helper.getId(a) == id) != undefined) {
+        insertAccessory.isUnique = false;
       }
 
-      talismans.push(insertTalisman);
-      talisman_ids.push(id);
+      accessories.push(insertAccessory);
+      accessoryIds.push(id);
     }
   }
 
-  // Don't account for lower tier versions of the same talisman
-  for (const talisman of talismans.concat(armor)) {
-    const id = getId(talisman);
+  // Don't account for lower tier versions of the same accessory
+  for (const accessory of accessories.concat(armor)) {
+    const id = helper.getId(accessory);
 
     if (id.startsWith("CAMPFIRE_TALISMAN_")) {
       const tier = parseInt(id.split("_").pop());
 
       const maxTier = Math.max(
-        ...talismans.filter((a) => getId(a).startsWith("CAMPFIRE_TALISMAN_")).map((a) => getId(a).split("_").pop())
+        ...accessories
+          .filter((a) => helper.getId(a).startsWith("CAMPFIRE_TALISMAN_"))
+          .map((a) => helper.getId(a).split("_").pop())
       );
 
       if (tier < maxTier) {
-        talisman.isUnique = false;
-        talisman.isInactive = true;
+        accessory.isUnique = false;
+        accessory.isInactive = true;
       }
 
-      talisman_ids.splice(talisman_ids.indexOf(id), 1, `CAMPFIRE_TALISMAN_${maxTier}`);
+      accessoryIds.splice(accessoryIds.indexOf(id), 1, `CAMPFIRE_TALISMAN_${maxTier}`);
     }
 
     if (id.startsWith("WEDDING_RING_")) {
       const tier = parseInt(id.split("_").pop());
 
       const maxTier = Math.max(
-        ...talismans.filter((a) => getId(a).startsWith("WEDDING_RING_")).map((a) => getId(a).split("_").pop())
+        ...accessories
+          .filter((a) => helper.getId(a).startsWith("WEDDING_RING_"))
+          .map((a) => helper.getId(a).split("_").pop())
       );
 
       if (tier < maxTier) {
-        talisman.isUnique = false;
-        talisman.isInactive = true;
+        accessory.isUnique = false;
+        accessory.isInactive = true;
       }
 
-      talisman_ids.splice(talisman_ids.indexOf(id), 1, `WEDDING_RING_${maxTier}`);
+      accessoryIds.splice(accessoryIds.indexOf(id), 1, `WEDDING_RING_${maxTier}`);
     }
 
-    if (id in constants.talisman_upgrades) {
-      const talismanUpgrades = constants.talisman_upgrades[id];
+    if (id.startsWith("PARTY_HAT_CRAB")) {
+      const CRAB_HAT = accessories.find((a) => helper.getId(a) == `PARTY_HAT_CRAB`);
+      const CRAB_HAT_ANIMATED = accessories.find((a) => helper.getId(a) == `PARTY_HAT_CRAB_ANIMATED`);
 
-      if (talismans.find((a) => !a.isInactive && talismanUpgrades.includes(getId(a))) != undefined) {
-        talisman.isInactive = true;
-      }
-
-      if (talismans.find((a) => talismanUpgrades.includes(getId(a))) != undefined) {
-        talisman.isUnique = false;
+      if (CRAB_HAT && CRAB_HAT_ANIMATED) {
+        CRAB_HAT.isUnique = false;
+        CRAB_HAT.isInactive = true;
       }
     }
 
-    if (id in constants.talisman_duplicates) {
-      const talismanDuplicates = constants.talisman_duplicates[id];
+    if (id in constants.accessoryAliases) {
+      const accessoryDuplicates = constants.accessoryAliases[id];
 
-      if (talismans.find((a) => talismanDuplicates.includes(getId(a))) != undefined) {
-        talisman.isUnique = false;
+      if (accessories.find((a) => accessoryDuplicates.includes(helper.getId(a))) != undefined) {
+        accessory.isUnique = false;
       }
     }
   }
 
-  // Add New Year Cake Bag health bonus (1 per unique cake)
-  for (let talisman of talismans) {
-    let id = getId(talisman);
-    let cakes = [];
+  for (const accessory of accessories) {
+    accessory.base_name = accessory.display_name;
 
-    if (id == "NEW_YEAR_CAKE_BAG" && Array.isArray(talisman?.containsItems)) {
-      talisman.stats.health = 0;
+    if (accessory.tag?.ExtraAttributes?.modifier != undefined) {
+      accessory.base_name = accessory.display_name.split(" ").slice(1).join(" ");
+      accessory.reforge = accessory.tag.ExtraAttributes.modifier;
+    }
 
-      for (const item of talisman.containsItems) {
-        if (
-          item.tag?.ExtraAttributes?.new_years_cake != undefined &&
-          !cakes.includes(item.tag.ExtraAttributes.new_years_cake)
-        ) {
-          talisman.stats.health++;
-          cakes.push(item.tag.ExtraAttributes.new_years_cake);
-        }
+    if (accessory.tag?.ExtraAttributes?.talisman_enrichment != undefined) {
+      accessory.enrichment = accessory.tag.ExtraAttributes.talisman_enrichment.toLowerCase();
+    }
+
+    if (accessory.isUnique === false || accessory.isInactive === true) {
+      const source = accessory.extra?.source;
+      if (source !== undefined) {
+        accessory.tag.display.Lore.push("", `§7Location: §c${source}`);
       }
     }
   }
 
-  for (const talisman of talismans) {
-    talisman.base_name = talisman.display_name;
+  output.accessories = accessories;
+  output.accessory_ids = accessoryIds;
+  output.accessory_rarities = accessoryRarities;
 
-    if (talisman.tag?.ExtraAttributes?.modifier != undefined) {
-      talisman.base_name = talisman.display_name.split(" ").slice(1).join(" ");
-      talisman.reforge = talisman.tag.ExtraAttributes.modifier;
-    }
+  output.weapons = allItems.filter((a) => a.categories?.includes("weapon"));
+  output.farming_tools = allItems.filter((a) => a.categories?.includes("farming_tool"));
+  output.mining_tools = allItems.filter((a) => a.categories?.includes("mining_tool"));
+  output.fishing_tools = allItems.filter((a) => a.categories?.includes("fishing_tool"));
 
-    if (talisman.tag?.ExtraAttributes?.talisman_enrichment != undefined) {
-      talisman.enrichment = talisman.tag.ExtraAttributes.talisman_enrichment;
-    }
-  }
-
-  output.talismans = talismans;
-  output.talisman_ids = talisman_ids;
-
-  output.weapons = all_items.filter((a) => a.categories?.includes("weapon"));
-  output.farming_tools = all_items.filter((a) => a.categories?.includes("farming_tool"));
-  output.mining_tools = all_items.filter((a) => a.categories?.includes("mining_tool"));
-  output.fishing_tools = all_items.filter((a) => a.categories?.includes("fishing_tool"));
-
-  output.pets = all_items
+  output.pets = allItems
     .filter((a) => a.tag?.ExtraAttributes?.petInfo)
     .map((a) => ({
       uuid: a.tag.ExtraAttributes.uuid,
@@ -1206,7 +1230,7 @@ export const getItems = async (
       skin: a.tag.ExtraAttributes.petInfo.skin || null,
     }));
 
-  for (const item of all_items) {
+  for (const item of allItems) {
     if (!Array.isArray(item.containsItems)) {
       continue;
     }
@@ -1244,7 +1268,7 @@ export const getItems = async (
 
   const itemSorter = (a, b) => {
     if (a.rarity !== b.rarity) {
-      return constants.rarities.indexOf(b.rarity) - constants.rarities.indexOf(a.rarity);
+      return constants.RARITIES.indexOf(b.rarity) - constants.RARITIES.indexOf(a.rarity);
     }
 
     if (b.inBackpack && !a.inBackpack) {
@@ -1257,17 +1281,17 @@ export const getItems = async (
     return a.item_index - b.item_index;
   };
 
-  // Sort talismans, weapons and rods by rarity
+  // Sort accessories, weapons and rods by rarity
   output.weapons = output.weapons.sort(itemSorter);
   output.fishing_tools = output.fishing_tools.sort(itemSorter);
   output.farming_tools = output.farming_tools.sort(itemSorter);
   output.mining_tools = output.mining_tools.sort(itemSorter);
-  output.talismans = output.talismans.sort(itemSorter);
+  output.accessories = output.accessories.sort(itemSorter);
 
   const countsOfId = {};
 
   for (const weapon of output.weapons) {
-    const id = getId(weapon);
+    const id = helper.getId(weapon);
 
     countsOfId[id] = (countsOfId[id] || 0) + 1;
 
@@ -1281,7 +1305,7 @@ export const getItems = async (
   }
 
   for (const item of output.fishing_tools) {
-    const id = getId(item);
+    const id = helper.getId(item);
 
     countsOfId[id] = (countsOfId[id] || 0) + 1;
 
@@ -1290,14 +1314,14 @@ export const getItems = async (
     }
   }
 
-  let swords = output.weapons.filter((a) => a.categories.includes("sword"));
-  let bows = output.weapons.filter((a) => a.categories.includes("bow"));
+  const swords = output.weapons.filter((a) => a.categories.includes("sword"));
+  const bows = output.weapons.filter((a) => a.categories.includes("bow"));
 
-  let swordsInventory = swords.filter((a) => a.backpackIndex === undefined);
-  let bowsInventory = bows.filter((a) => a.backpackIndex === undefined);
-  let fishingtoolsInventory = output.fishing_tools.filter((a) => a.backpackIndex === undefined);
-  let farmingtoolsInventory = output.farming_tools.filter((a) => a.backpackIndex === undefined);
-  let miningtoolsInventory = output.mining_tools.filter((a) => a.backpackIndex === undefined);
+  const swordsInventory = swords.filter((a) => a.backpackIndex === undefined);
+  const bowsInventory = bows.filter((a) => a.backpackIndex === undefined);
+  const fishingtoolsInventory = output.fishing_tools.filter((a) => a.backpackIndex === undefined);
+  const farmingtoolsInventory = output.farming_tools.filter((a) => a.backpackIndex === undefined);
+  const miningtoolsInventory = output.mining_tools.filter((a) => a.backpackIndex === undefined);
 
   if (swords.length > 0) {
     output.highest_rarity_sword = swordsInventory
@@ -1336,6 +1360,13 @@ export const getItems = async (
     output.armor_set_rarity = armorPiece.rarity;
   }
 
+  if (equipment.filter((x) => x.rarity).length === 1) {
+    const equipmentPiece = equipment.find((x) => x.rarity);
+
+    output.equipment_set = equipmentPiece.display_name;
+    output.equipment_set_rarity = equipmentPiece.rarity;
+  }
+
   // Full armor set (4 pieces)
   if (armor.filter((x) => x.rarity).length === 4) {
     let output_name;
@@ -1345,11 +1376,8 @@ export const getItems = async (
     armor.forEach((armorPiece) => {
       let name = armorPiece.display_name;
 
-      // Removing stars
-      name = name.replaceAll(/✪|⍟/g, "").trim();
-
-      // Removing skin
-      name = name.replaceAll("✦", "").trim();
+      // Removing skin and stars / Whitelisting a-z and 0-9
+      name = name.replace(/[^A-Za-z0-9 -']/g, "").trim();
 
       // Removing modifier
       if (armorPiece.tag?.ExtraAttributes?.modifier != undefined) {
@@ -1387,8 +1415,8 @@ export const getItems = async (
     }
 
     // Handling special sets of armor (where pieces aren't named the same)
-    constants.special_sets.forEach((set) => {
-      if (armor.filter((a) => set.pieces.includes(getId(a))).length == 4) {
+    constants.SPECIAL_SETS.forEach((set) => {
+      if (armor.filter((a) => set.pieces.includes(helper.getId(a))).length == 4) {
         output_name = set.name;
       }
     });
@@ -1399,15 +1427,40 @@ export const getItems = async (
     }
 
     output.armor_set = output_name;
-    output.armor_set_rarity = constants.rarities[Math.max(...armor.map((a) => helper.rarityNameToInt(a.rarity)))];
+    output.armor_set_rarity = constants.RARITIES[Math.max(...armor.map((a) => helper.rarityNameToInt(a.rarity)))];
   }
 
-  console.debug(`${options.debugId}: getItems returned. (${new Date().getTime() - timeStarted}ms)`);
+  // Full equipment set (4 pieces)
+  for (const piece of equipment) {
+    if (piece.rarity == null) delete equipment[equipment.indexOf(piece)];
+  }
+
+  if (equipment.filter((x) => x.rarity).length === 4) {
+    // Getting equipment_name
+    equipment.forEach((equipmentPiece) => {
+      let name = equipmentPiece.display_name;
+
+      // Removing skin and stars / Whitelisting a-z and 0-9
+      name = name.replace(/[^A-Za-z0-9 -']/g, "").trim();
+
+      // Removing modifier
+      if (equipmentPiece.tag?.ExtraAttributes?.modifier != undefined) {
+        name = name.split(" ").slice(1).join(" ");
+      }
+
+      equipmentPiece.equipment_name = name;
+    });
+
+    output.equipment_set_rarity =
+      constants.RARITIES[Math.max(...equipment.map((a) => helper.rarityNameToInt(a.rarity)))];
+  }
+
+  console.debug(`${options.debugId}: getItems returned. (${Date.now() - timeStarted}ms)`);
   return output;
 };
 
-export async function getLevels(userProfile, hypixelProfile, levelCaps) {
-  let output = {};
+async function getLevels(userProfile, hypixelProfile, levelCaps, profileMembers) {
+  const output = {};
 
   let skillLevels;
   let totalSkillXp = 0;
@@ -1425,7 +1478,7 @@ export async function getLevels(userProfile, hypixelProfile, levelCaps) {
     "experience_skill_alchemy" in userProfile ||
     "experience_skill_carpentry" in userProfile ||
     "experience_skill_runecrafting" in userProfile ||
-    "experience_skill_social" in userProfile
+    "experience_skill_social2" in userProfile
   ) {
     let average_level_no_progress = 0;
 
@@ -1446,14 +1499,22 @@ export async function getLevels(userProfile, hypixelProfile, levelCaps) {
         skill: "runecrafting",
         type: "runecrafting",
       }),
-      social: getLevelByXp(userProfile.experience_skill_social, {
-        skill: "social",
-        type: "social",
-      }),
+      social:
+        Object.keys(profileMembers || {}).length > 0
+          ? getLevelByXp(
+              Object.keys(profileMembers)
+                .map((member) => profileMembers[member].experience_skill_social2 || 0)
+                .reduce((a, b) => a + b, 0),
+              { skill: "social", type: "social" }
+            )
+          : getLevelByXp(userProfile.experience_skill_social2, {
+              skill: "social",
+              type: "social",
+            }),
     };
 
-    for (let skill in skillLevels) {
-      if (!constants.cosmetic_skills.includes(skill)) {
+    for (const skill in skillLevels) {
+      if (!constants.COSMETIC_SKILLS.includes(skill)) {
         average_level += skillLevels[skill].level + skillLevels[skill].progress;
         average_level_no_progress += skillLevels[skill].level;
 
@@ -1462,9 +1523,9 @@ export async function getLevels(userProfile, hypixelProfile, levelCaps) {
     }
 
     output.average_level =
-      average_level / (Object.keys(skillLevels).length - Object.keys(constants.cosmetic_skills).length);
+      average_level / (Object.keys(skillLevels).length - Object.keys(constants.COSMETIC_SKILLS).length);
     output.average_level_no_progress =
-      average_level_no_progress / (Object.keys(skillLevels).length - Object.keys(constants.cosmetic_skills).length);
+      average_level_no_progress / (Object.keys(skillLevels).length - Object.keys(constants.COSMETIC_SKILLS).length);
     output.total_skill_xp = totalSkillXp;
 
     output.levels = Object.assign({}, skillLevels);
@@ -1478,6 +1539,7 @@ export async function getLevels(userProfile, hypixelProfile, levelCaps) {
       enchanting: hypixelProfile.achievements.skyblock_augmentation || 0,
       alchemy: hypixelProfile.achievements.skyblock_concoctor || 0,
       taming: hypixelProfile.achievements.skyblock_domesticator || 0,
+      carpentry: 0,
     };
 
     output.levels = {};
@@ -1526,56 +1588,48 @@ export async function getLevels(userProfile, hypixelProfile, levelCaps) {
   return output;
 }
 
-export const getStats = async (
+export async function getStats(
   db,
   profile,
   allProfiles,
   items,
   options = { cacheOnly: false, debugId: `${helper.getClusterId()}/unknown@getStats` }
-) => {
-  let output = {};
+) {
+  const output = {};
 
   console.debug(`${options.debugId}: getStats called.`);
-  const timeStarted = new Date().getTime();
+  const timeStarted = Date.now();
 
   const userProfile = profile.members[profile.uuid];
   const hypixelProfile = await helper.getRank(profile.uuid, db, options.cacheOnly);
 
-  output.stats = Object.assign({}, constants.base_stats);
+  output.stats = Object.assign({}, constants.BASE_STATS);
 
+  // fairy souls
   if (isNaN(userProfile.fairy_souls_collected)) {
     userProfile.fairy_souls_collected = 0;
   }
 
-  output.fairy_bonus = {};
-
-  if (userProfile.fairy_exchanges > 0) {
-    const fairyBonus = getFairyBonus(userProfile.fairy_exchanges);
-
-    output.fairy_bonus = Object.assign({}, fairyBonus);
-
-    // Apply fairy soul bonus
-    for (let stat in fairyBonus) {
-      output.stats[stat] += fairyBonus[stat];
-    }
-  }
   const totalSouls =
-    profile.game_mode === "island" ? constants.fairy_souls.max.stranded : constants.fairy_souls.max.normal;
+    profile.game_mode === "island" ? constants.FAIRY_SOULS.max.stranded : constants.FAIRY_SOULS.max.normal;
 
   output.fairy_souls = {
     collected: userProfile.fairy_souls_collected,
     total: totalSouls,
     progress: userProfile.fairy_souls_collected / totalSouls,
   };
+  output.fairy_exchanges = userProfile.fairy_exchanges;
 
+  // levels
   const levelCaps = {
-    farming: constants.default_skill_caps.farming + (userProfile.jacob2?.perks?.farming_level_cap || 0),
+    farming: constants.DEFAULT_SKILL_CAPS.farming + (userProfile.jacob2?.perks?.farming_level_cap || 0),
   };
 
   const { levels, average_level, average_level_no_progress, total_skill_xp, average_level_rank } = await getLevels(
     userProfile,
     hypixelProfile,
-    levelCaps
+    levelCaps,
+    profile.members
   );
 
   output.levels = levels;
@@ -1585,29 +1639,11 @@ export const getStats = async (
   output.average_level_rank = average_level_rank;
   output.level_caps = levelCaps;
 
-  output.skill_bonus = {};
-
-  for (let skill in levels) {
-    if (levels[skill].level == 0) {
-      continue;
-    }
-
-    const skillBonus = getBonusStat(levels[skill].level || levels[skill], `${skill}_skill`, levels[skill].levelCap, 1);
-
-    output.skill_bonus[skill] = Object.assign({}, skillBonus);
-
-    for (const stat in skillBonus) {
-      output.stats[stat] += skillBonus[stat];
-    }
-  }
-
   output.slayer_coins_spent = {};
 
   // Apply slayer bonuses
   if ("slayer_bosses" in userProfile) {
-    output.slayer_bonus = {};
-
-    let slayers = {};
+    const slayers = {};
 
     if ("slayer_bosses" in userProfile) {
       for (const slayerName in userProfile.slayer_bosses) {
@@ -1631,7 +1667,7 @@ export const getStats = async (
             slayers[slayerName].kills[tier] = slayer[property];
 
             output.slayer_coins_spent[slayerName] =
-              (output.slayer_coins_spent[slayerName] || 0) + slayer[property] * constants.slayer_cost[tier];
+              (output.slayer_coins_spent[slayerName] || 0) + slayer[property] * constants.SLAYER_COST[tier];
           }
         }
       }
@@ -1651,341 +1687,54 @@ export const getStats = async (
         continue;
       }
 
-      const slayerBonus = getBonusStat(slayers[slayer].level.currentLevel, `${slayer}_slayer`, 9, 1);
-
-      output.slayer_bonus[slayer] = Object.assign({}, slayerBonus);
-
       output.slayer_xp += slayers[slayer].xp || 0;
-
-      for (let stat in slayerBonus) {
-        output.stats[stat] += slayerBonus[stat];
-      }
     }
 
     output.slayers = Object.assign({}, slayers);
   }
 
   if (!items.no_inventory) {
-    output.missingTalismans = await getMissingTalismans(items.talisman_ids);
-  }
+    output.missingAccessories = getMissingAccessories(items.accessory_ids);
 
-  if (!userProfile.pets) {
-    userProfile.pets = [];
-  }
-  userProfile.pets.push(...items.pets);
+    for (const key of Object.keys(output.missingAccessories)) {
+      for (const item of output.missingAccessories[key]) {
+        const ITEM_PRICE = await helper.getItemPrice(item.name);
+        item.extra ??= {};
+        item.extra.price = ITEM_PRICE;
 
-  output.pets = await getPets(userProfile);
-  output.missingPets = await getMissingPets(output.pets, profile.game_mode);
-  output.petScore = await getPetScore(output.pets);
+        if (ITEM_PRICE === 0) continue;
 
-  const petScoreRequired = Object.keys(constants.pet_rewards).sort((a, b) => parseInt(b) - parseInt(a));
-
-  output.pet_bonus = {};
-
-  // eslint-disable-next-line no-unused-vars
-  for (const [index, score] of petScoreRequired.entries()) {
-    if (parseInt(score) > output.petScore) {
-      continue;
+        item.tag ??= {};
+        item.tag.display ??= {};
+        item.tag.display.Lore ??= [];
+        item.tag.display.Lore.push(
+          `§7Price: §6${Math.round(ITEM_PRICE).toLocaleString()} Coins §7(§6${helper.formatNumber(
+            ITEM_PRICE / constants.MAGICAL_POWER[item.rarity]
+          )} §7per MP)`
+        );
+      }
     }
 
-    output.pet_score_bonus = Object.assign({}, constants.pet_rewards[score]);
+    for (const key of Object.keys(output.missingAccessories)) {
+      output.missingAccessories[key].sort((a, b) => {
+        const aPrice = a.extra?.price || 0;
+        const bPrice = b.extra?.price || 0;
 
-    break;
-  }
+        if (aPrice === 0) return 1;
+        if (bPrice === 0) return -1;
 
-  let activePet = false;
-  for (const pet of output.pets) {
-    if (!pet.active) {
-      continue;
+        return aPrice - bPrice;
+      });
     }
-
-    activePet = pet;
-    for (const stat in pet.stats) {
-      output.pet_bonus[stat] = (output.pet_bonus[stat] || 0) + pet.stats[stat];
-    }
-  }
-
-  // Apply all harp bonuses when Melody's Hair has been acquired
-  if (items.talismans.filter((a) => getId(a) == "MELODY_HAIR").length == 1) {
-    output.stats.intelligence += 26;
-  }
-
-  // Apply pet score bonus
-  for (const stat in output.pet_score_bonus) {
-    output.stats[stat] += output.pet_score_bonus[stat];
   }
 
   output.base_stats = Object.assign({}, output.stats);
 
-  // Apply stats from pets
-  for (const stat in output.pet_bonus) {
-    output.stats[stat] += output.pet_bonus[stat];
-  }
-
-  // Apply pet bonus to armor
-  if (activePet) {
-    activePet.ref.modifyArmor(
-      items.armor.find((a) => a.categories.includes("helmet")),
-      getId(items.armor.find((a) => a.categories.includes("helmet"))),
-      items.armor.find((a) => a.categories.includes("chestplate")),
-      getId(items.armor.find((a) => a.categories.includes("chestplate"))),
-      items.armor.find((a) => a.categories.includes("leggings")),
-      getId(items.armor.find((a) => a.categories.includes("leggings"))),
-      items.armor.find((a) => a.categories.includes("boots")),
-      getId(items.armor.find((a) => a.categories.includes("boots")))
-    );
-
-    // Updates items lore after modifyArmor() changed their stats/extra (hpb)
-    makeLore(items.armor.find((a) => a.categories.includes("helmet")));
-    makeLore(items.armor.find((a) => a.categories.includes("chestplate")));
-    makeLore(items.armor.find((a) => a.categories.includes("leggings")));
-    makeLore(items.armor.find((a) => a.categories.includes("boots")));
-  }
-
-  // Apply Lapis Armor full set bonus of +60 HP
-  if (items.armor.filter((a) => getId(a).startsWith("LAPIS_ARMOR_")).length == 4) {
-    items.armor[0].stats.health = (items.armor[0].stats.health || 0) + 60;
-  }
-
-  // Apply Emerald Armor full set bonus of +1 HP and +1 Defense per 3000 emeralds in collection with a maximum of 300
-  if (
-    !isNaN(userProfile.collection?.EMERALD) &&
-    items.armor.filter((a) => getId(a).startsWith("EMERALD_ARMOR_")).length == 4
-  ) {
-    let emerald_bonus = Math.min(350, Math.floor(userProfile.collection.EMERALD / 3000));
-
-    items.armor[0].stats.health += emerald_bonus;
-    items.armor[0].stats.defense += emerald_bonus;
-  }
-
-  // Apply Fairy Armor full set bonus of +10 Speed
-  if (items.armor.filter((a) => getId(a).startsWith("FAIRY_")).length == 4) {
-    items.armor[0].stats.speed += 10;
-  }
-
-  // Apply Speedster Armor full set bonus of +20 Speed
-  if (items.armor.filter((a) => getId(a).startsWith("SPEEDSTER_")).length == 4) {
-    items.armor[0].stats.speed += 20;
-  }
-
-  // Apply Young Dragon Armor full set bonus of +70 Speed
-  if (items.armor.filter((a) => getId(a).startsWith("YOUNG_DRAGON_")).length == 4) {
-    items.armor[0].stats.speed += 70;
-  }
-
-  // Apply basic armor stats
-  for (const item of items.armor) {
-    if (item.isInactive || item.categories.includes("accessory")) {
-      item.stats = {};
-
-      if (getId(item) != "PARTY_HAT_CRAB") {
-        continue;
-      }
-
-      for (const lore of item.tag.display.Lore) {
-        const line = helper.getRawLore(lore);
-
-        if (line.startsWith("Your bonus: ")) {
-          item.stats.intelligence = parseInt(line.split(" ")[2].substring(1));
-          break;
-        }
-      }
-    }
-
-    for (let stat in item.stats) {
-      output.stats[stat] += item.stats[stat];
-    }
-  }
-
-  // Apply stats of active talismans
-  items.talismans
-    .filter((a) => Object.keys(a).length != 0 && !a.isInactive)
-    .forEach((item) => {
-      for (let stat in item.stats) {
-        output.stats[stat] += item.stats[stat];
-      }
-    });
-
-  // Apply Mastiff Armor full set bonus of +50 HP per 1% Crit Damage
-  if (items.armor.filter((a) => getId(a).startsWith("MASTIFF_")).length == 4) {
-    output.stats.health += 50 * output.stats.crit_damage;
-    items.armor[0].stats.health += 50 * output.stats.crit_damage;
-  }
-
-  // Apply +5 Defense and +5 Strength of Day/Night Crystal only if both are owned as this is required for a permanent bonus
-  if (items.talismans.filter((a) => !a.isInactive && ["DAY_CRYSTAL", "NIGHT_CRYSTAL"].includes(getId(a))).length == 2) {
-    output.stats.defense += 5;
-    output.stats.strength += 5;
-
-    const dayCrystal = items.talismans.find((a) => getId(a) == "DAY_CRYSTAL");
-
-    dayCrystal.stats.defense = (dayCrystal.stats.defense || 0) + 5;
-    dayCrystal.stats.strength = (dayCrystal.stats.strength || 0) + 5;
-  }
-
-  // Apply Obsidian Chestplate bonus of +1 Speed per 20 Obsidian in inventory
-  if (items.armor.filter((a) => getId(a) == "OBSIDIAN_CHESTPLATE").length == 1) {
-    let obsidian = 0;
-
-    for (let item of items.inventory) {
-      if (item.id == 49) {
-        obsidian += item.Count;
-      }
-    }
-
-    output.stats.speed += Math.floor(obsidian / 20);
-  }
-
-  if (items.armor.filter((a) => getId(a).startsWith("CHEAP_TUXEDO_")).length == 3) {
-    output.stats["health"] = 75;
-  }
-
-  if (items.armor.filter((a) => getId(a).startsWith("FANCY_TUXEDO_")).length == 3) {
-    output.stats["health"] = 150;
-  }
-
-  if (items.armor.filter((a) => getId(a).startsWith("ELEGANT_TUXEDO_")).length == 3) {
-    output.stats["health"] = 250;
-  }
-
   output.weapon_stats = {};
-
-  for (const item of [
-    /*{itemId:"NONE",stats:{}}*/
-  ]
-    .concat(items.weapons)
-    .concat(items.fishing_tools)) {
-    let stats = Object.assign({}, output.stats);
-
-    // Modify weapon based on pet
-    // if (activePet)
-    //     activePet.ref.modifyWeapon(item, getId(item));
-    // apparently we don't actually need this
-
-    // Apply held weapon stats
-    for (let stat in item.stats) {
-      stats[stat] += item.stats[stat];
-    }
-
-    // Add crit damage from held weapon to Mastiff Armor full set bonus
-    if (item.stats.crit_damage > 0 && items.armor.filter((a) => getId(a).startsWith("MASTIFF_")).length == 4) {
-      stats.health += 50 * item.stats.crit_damage;
-    }
-
-    // Apply Superior Dragon Armor full set bonus of 5% stat increase
-    if (items.armor.filter((a) => getId(a).startsWith("SUPERIOR_DRAGON_")).length == 4) {
-      for (const stat in stats) {
-        if (constants.increase_most_stats_exclude.includes(stat)) {
-          continue;
-        }
-        stats[stat] *= 1.05;
-      }
-    }
-
-    // Apply Renowened bonus (whoever made this please comment)
-    for (let i = 0; i < items.armor.filter((a) => a?.tag?.ExtraAttributes?.modifier == "renowned").length; i++) {
-      for (const stat in stats) {
-        if (constants.increase_most_stats_exclude.includes(stat)) {
-          continue;
-        }
-        stats[stat] *= 1.01;
-      }
-    }
-
-    // Apply Loving reforge bonus
-    for (let i = 0; i < items.armor.filter((a) => a.tag?.ExtraAttributes?.modifier == "loving").length; i++) {
-      stats["ability_damage"] += 5;
-    }
-
-    // Modify stats based off of pet ability
-    if (activePet) {
-      activePet.ref.modifyStats(stats);
-    }
-
-    if (items.armor.filter((a) => getId(a).startsWith("CHEAP_TUXEDO_")).length == 3) {
-      stats["health"] = 75;
-    }
-
-    if (items.armor.filter((a) => getId(a).startsWith("FANCY_TUXEDO_")).length == 3) {
-      stats["health"] = 150;
-    }
-
-    if (items.armor.filter((a) => getId(a).startsWith("ELEGANT_TUXEDO_")).length == 3) {
-      stats["health"] = 250;
-    }
-
-    output.weapon_stats[item.itemId] = stats;
-
-    // Stats shouldn't go into negative
-    for (let stat in stats) {
-      output.weapon_stats[item.itemId][stat] = Math.max(0, Math.round(stats[stat]));
-    }
-
-    stats.effective_health = getEffectiveHealth(stats.health, stats.defense);
-  }
-
-  const superiorBonus = Object.assign({}, constants.stat_template);
-
-  // Apply Superior Dragon Armor full set bonus of 5% stat increase
-  if (items.armor.filter((a) => getId(a).startsWith("SUPERIOR_DRAGON_")).length == 4) {
-    for (const stat in output.stats) {
-      if (constants.increase_most_stats_exclude.includes(stat)) {
-        continue;
-      }
-      superiorBonus[stat] = output.stats[stat] * 0.05;
-    }
-
-    for (const stat in superiorBonus) {
-      output.stats[stat] += superiorBonus[stat];
-
-      if (!(stat in items.armor[0].stats)) {
-        items.armor[0].stats[stat] = 0;
-      }
-
-      items.armor[0].stats[stat] += superiorBonus[stat];
-    }
-  }
-
-  // Same thing as Superior armor but for Renowned armor
-  const renownedBonus = Object.assign({}, constants.stat_template);
-
-  for (const item of items.armor) {
-    if (item.tag?.ExtraAttributes?.modifier == "renowned") {
-      for (const stat in output.stats) {
-        if (constants.increase_most_stats_exclude.includes(stat)) {
-          continue;
-        }
-        renownedBonus[stat] += output.stats[stat] * 0.01;
-        output.stats[stat] *= 1.01;
-      }
-    }
-  }
-
-  if (items.armor[0]?.stats != undefined) {
-    for (const stat in renownedBonus) {
-      if (!(stat in items.armor[0].stats)) {
-        items.armor[0].stats[stat] = 0;
-      }
-
-      items.armor[0].stats[stat] += renownedBonus[stat];
-    }
-  }
-
-  // Modify stats based off of pet ability (because this one is for when you don't have armor)
-  if (activePet) {
-    activePet.ref.modifyStats(output.stats);
-  }
-
-  // Stats shouldn't go into negative
-  for (let stat in output.stats) {
-    output.stats[stat] = Math.max(0, Math.round(output.stats[stat]));
-  }
-
-  output.stats.effective_health = getEffectiveHealth(output.stats.health, output.stats.defense);
 
   let killsDeaths = [];
 
-  for (let stat in userProfile.stats) {
+  for (const stat in userProfile.stats) {
     if (stat.startsWith("kills_") && userProfile.stats[stat] > 0) {
       killsDeaths.push({ type: "kills", entityId: stat.replace("kills_", ""), amount: userProfile.stats[stat] });
     }
@@ -1996,10 +1745,10 @@ export const getStats = async (
   }
 
   for (const stat of killsDeaths) {
-    let { entityId } = stat;
+    const { entityId } = stat;
 
-    if (entityId in constants.mob_names) {
-      stat.entityName = constants.mob_names[entityId];
+    if (entityId in constants.MOB_NAMES) {
+      stat.entityName = constants.MOB_NAMES[entityId];
       continue;
     }
 
@@ -2092,25 +1841,10 @@ export const getStats = async (
     if ("emojiImg" in userInfo) {
       output.display_emoji_img = userInfo.emojiImg;
     }
+
     if (userInfo.username == "jjww2") {
       output.display_emoji = constants.randomEmoji();
     }
-  }
-
-  for (const member of members) {
-    if (profile?.members?.[member.uuid]?.last_save == undefined) {
-      continue;
-    }
-
-    const last_updated = profile.members[member.uuid].last_save;
-
-    member.last_updated = {
-      unix: last_updated,
-      text:
-        Date.now() - last_updated < 7 * 60 * 1000
-          ? "currently online"
-          : `last played ${moment(last_updated).fromNow()}`,
-    };
   }
 
   if (profile.banking?.balance != undefined) {
@@ -2128,18 +1862,10 @@ export const getStats = async (
   output.profiles = {};
 
   for (const sbProfile of allProfiles.filter((a) => a.profile_id != profile.profile_id)) {
-    if (sbProfile?.members?.[profile.uuid]?.last_save == undefined) {
-      continue;
-    }
-
     output.profiles[sbProfile.profile_id] = {
       profile_id: sbProfile.profile_id,
       cute_name: sbProfile.cute_name,
       game_mode: sbProfile.game_mode,
-      last_updated: {
-        unix: sbProfile.members[profile.uuid].last_save,
-        text: `last played ${moment(sbProfile.members[profile.uuid].last_save).fromNow()}`,
-      },
     };
   }
 
@@ -2147,11 +1873,12 @@ export const getStats = async (
   output.minions = getMinions(profile.members);
   output.minion_slots = getMinionSlots(output.minions);
   output.collections = await getCollections(profile.uuid, profile, options.cacheOnly);
+  output.bestiary = getBestiary(profile.uuid, profile);
   output.social = hypixelProfile.socials;
 
-  output.dungeons = await getDungeons(userProfile, hypixelProfile);
+  output.dungeons = getDungeons(userProfile, hypixelProfile);
 
-  output.essence = await getEssence(userProfile, hypixelProfile);
+  output.essence = getEssence(userProfile, hypixelProfile);
 
   output.fishing = {
     total: userProfile.stats.items_fished || 0,
@@ -2167,6 +1894,7 @@ export const getStats = async (
 
   const farming = {
     talked: userProfile.jacob2?.talked || false,
+    pelts: userProfile.trapper_quest?.pelt_count || 0,
   };
 
   if (farming.talked) {
@@ -2196,8 +1924,8 @@ export const getStats = async (
     // Things about individual crops
     farming.crops = {};
 
-    for (const crop in constants.farming_crops) {
-      farming.crops[crop] = constants.farming_crops[crop];
+    for (const crop in constants.FARMING_CROPS) {
+      farming.crops[crop] = constants.FARMING_CROPS[crop];
 
       Object.assign(farming.crops[crop], {
         attended: false,
@@ -2218,12 +1946,12 @@ export const getStats = async (
       all_contests: [],
     };
 
-    for (const contest_id in userProfile.jacob2.contests) {
-      const data = userProfile.jacob2.contests[contest_id];
+    for (const contestId in userProfile.jacob2.contests) {
+      const data = userProfile.jacob2.contests[contestId];
 
-      let contest_name = contest_id.split(":");
-      const date = `${contest_name[1]}_${contest_name[0]}`;
-      const crop = contest_name.slice(2).join(":");
+      const contestName = contestId.split(":");
+      const date = `${contestName[1]}_${contestName[0]}`;
+      const crop = contestName.slice(2).join(":");
 
       farming.crops[crop].contests++;
       farming.crops[crop].attended = true;
@@ -2286,56 +2014,58 @@ export const getStats = async (
   };
 
   if (enchanting.experimented) {
-    const enchanting_data = userProfile.experimentation;
+    const enchantingData = userProfile.experimentation;
 
-    for (const game in constants.experiments.games) {
-      if (enchanting_data[game] == null) continue;
-      if (!Object.keys(enchanting_data[game]).length >= 1) {
+    for (const game in constants.EXPERIMENTS.games) {
+      if (enchantingData[game] == null) continue;
+      if (!Object.keys(enchantingData[game]).length >= 1) {
         continue;
       }
 
-      const game_data = enchanting_data[game];
-      const game_constants = constants.experiments.games[game];
+      const gameData = enchantingData[game];
+      const gameConstants = constants.EXPERIMENTS.games[game];
 
-      const game_output = {
-        name: game_constants.name,
+      const gameOutput = {
+        name: gameConstants.name,
         stats: {},
         tiers: {},
       };
 
-      for (const key in game_data) {
+      for (const key in gameData) {
         if (key.startsWith("attempts") || key.startsWith("claims") || key.startsWith("best_score")) {
           let statKey = key.split("_");
-          let tierValue = statKey.pop();
+          let tierValue = parseInt(statKey.pop());
+          tierValue =
+            game === "numbers" ? tierValue + 2 : game === "simon" ? (tierValue === 5 ? 5 : tierValue + 1) : tierValue;
 
           statKey = statKey.join("_");
-          const tierInfo = _.cloneDeep(constants.experiments.tiers[tierValue]);
+          const tierInfo = _.cloneDeep(constants.EXPERIMENTS.tiers[tierValue]);
 
-          if (!game_output.tiers[tierValue]) {
-            game_output.tiers[tierValue] = tierInfo;
+          if (!gameOutput.tiers[tierValue]) {
+            gameOutput.tiers[tierValue] = tierInfo;
           }
 
-          Object.assign(game_output.tiers[tierValue], {
-            [statKey]: game_data[key],
+          Object.assign(gameOutput.tiers[tierValue], {
+            [statKey]: gameData[key],
           });
           continue;
         }
 
         if (key == "last_attempt" || key == "last_claimed") {
-          if (game_data[key] <= 0) continue;
-          const last_time = {
-            unix: game_data[key],
-            text: moment(game_data[key]).fromNow(),
+          if (gameData[key] <= 0) continue;
+          const lastTime = {
+            unix: gameData[key],
+            text: moment(gameData[key]).fromNow(),
           };
 
-          game_output.stats[key] = last_time;
+          gameOutput.stats[key] = lastTime;
           continue;
         }
 
-        game_output.stats[key] = game_data[key];
+        gameOutput.stats[key] = gameData[key];
       }
 
-      enchanting.experiments[game] = game_output;
+      enchanting.experiments[game] = gameOutput;
     }
 
     if (!Object.keys(enchanting.experiments).length >= 1) {
@@ -2350,29 +2080,78 @@ export const getStats = async (
   const mining = {
     commissions: {
       milestone: 0,
+      completions: hypixelProfile?.achievements?.skyblock_hard_working_miner || 0,
     },
   };
 
-  for (const key of userProfile.tutorial) {
-    if (key.startsWith("commission_milestone_reward_mining_xp_tier_")) {
-      let milestone_tier = key.slice(43);
-      if (mining.commissions.milestone < milestone_tier) {
-        mining.commissions.milestone = milestone_tier;
+  if (userProfile?.tutorial) {
+    for (const key of userProfile.tutorial) {
+      if (key.startsWith("commission_milestone_reward_mining_xp_tier_")) {
+        const milestoneTier = key.slice(43);
+        if (mining.commissions.milestone < milestoneTier) mining.commissions.milestone = milestoneTier;
       }
-    } else {
-      continue;
     }
   }
 
   mining.forge = await getForge(userProfile);
-  mining.core = await getMiningCoreData(userProfile);
+  mining.core = getMiningCoreData(userProfile);
 
   output.mining = mining;
+
+  // CRIMSON ISLES
+
+  const crimsonIsles = {
+    kuudra_completed_tiers: {},
+    dojo: {},
+    factions: {},
+    total_dojo_points: 0,
+  };
+
+  crimsonIsles.factions.selected_faction = userProfile.nether_island_player_data?.selected_faction ?? "None";
+  crimsonIsles.factions.mages_reputation = userProfile.nether_island_player_data?.mages_reputation ?? 0;
+  crimsonIsles.factions.barbarians_reputation = userProfile.nether_island_player_data?.barbarians_reputation ?? 0;
+
+  Object.keys(constants.KUUDRA_TIERS).forEach((key) => {
+    crimsonIsles.kuudra_completed_tiers[key] = {
+      name: constants.KUUDRA_TIERS[key].name,
+      head: constants.KUUDRA_TIERS[key].head,
+      completions: userProfile.nether_island_player_data?.kuudra_completed_tiers[key] ?? 0,
+    };
+  });
+
+  Object.keys(constants.DOJO).forEach((key) => {
+    key = key.replaceAll("dojo_points_", "").replaceAll("dojo_time_", "");
+    crimsonIsles.total_dojo_points += userProfile.nether_island_player_data?.dojo[`dojo_points_${key}`] ?? 0;
+    crimsonIsles.dojo[key.toUpperCase()] = {
+      name: constants.DOJO[key].name,
+      id: constants.DOJO[key].itemId,
+      damage: constants.DOJO[key].damage,
+      points: userProfile.nether_island_player_data?.dojo[`dojo_points_${key}`] ?? 0,
+      time: userProfile.nether_island_player_data?.dojo[`dojo_time_${key}`] ?? 0,
+    };
+  });
+
+  output.crimsonIsles = crimsonIsles;
+
+  output.abiphone = {
+    contacts: userProfile.nether_island_player_data?.abiphone?.contact_data ?? {},
+    active: userProfile.nether_island_player_data?.abiphone?.active_contacts?.length || 0,
+  };
+
+  output.skyblock_level = {
+    xp: userProfile.leveling?.experience || 0,
+    level: Math.floor(userProfile.leveling?.experience / 100 || 0),
+    maxLevel: 386,
+    progress: (userProfile.leveling?.experience % 100) / 100 || 0,
+    xpCurrent: userProfile.leveling?.experience % 100 || 0,
+    xpForNext: 100,
+  };
 
   // MISC
 
   const misc = {};
 
+  output.perks = userProfile.perks || {};
   misc.milestones = {};
   misc.objectives = {};
   misc.races = {};
@@ -2386,6 +2165,11 @@ export const getStats = async (
   misc.auctions_sell = {};
   misc.auctions_buy = {};
   misc.claimed_items = {};
+  misc.effects = {
+    active: userProfile.active_effects || [],
+    paused: userProfile.paused_effects || [],
+    disabled: userProfile.disabled_potion_effects || [],
+  };
 
   if ("ender_crystals_destroyed" in userProfile.stats) {
     misc.dragons["ender_crystals_destroyed"] = userProfile.stats["ender_crystals_destroyed"];
@@ -2416,7 +2200,7 @@ export const getStats = async (
     }
   }
 
-  misc.profile_upgrades = await getProfileUpgrades(profile);
+  misc.profile_upgrades = getProfileUpgrades(profile);
 
   const auctions_buy = ["auctions_bids", "auctions_highest_bid", "auctions_won", "auctions_gold_spent"];
   const auctions_sell = ["auctions_fees", "auctions_gold_earned"];
@@ -2442,7 +2226,7 @@ export const getStats = async (
     if (key.includes("complete_the_")) {
       const isCompleted = userProfile.objectives[key].status == "COMPLETE";
       const tierNumber = parseInt("" + key.charAt(key.length - 1)) ?? 0;
-      const raceName = constants.raceObjectiveToStatName[key.substring(0, key.length - 2)];
+      const raceName = constants.RACE_OBJECTIVE_TO_STAT_NAME[key.substring(0, key.length - 2)];
 
       if (tierNumber == 1 && !isCompleted) {
         misc.objectives.completedRaces[raceName] = 0;
@@ -2465,9 +2249,9 @@ export const getStats = async (
       auctions_sold[key.replace("auctions_sold_", "")] = userProfile.stats[key];
     } else if (key.includes("auctions_bought_")) {
       auctions_bought[key.replace("auctions_bought_", "")] = userProfile.stats[key];
-    } else if (key.startsWith("kills_") && key.endsWith("_dragon")) {
+    } else if (key.startsWith("kills_") && key.endsWith("_dragon") && key !== "kills_master_wither_king_dragon") {
       misc.dragons["last_hits"] += userProfile.stats[key];
-    } else if (key.startsWith("deaths_") && key.endsWith("_dragon")) {
+    } else if (key.startsWith("deaths_") && key.endsWith("_dragon") && key !== "deaths_master_wither_king_dragon") {
       misc.dragons["deaths"] += userProfile.stats[key];
     } else if (key.includes("kills_corrupted_protector")) {
       misc.protector["last_hits"] = userProfile.stats[key];
@@ -2522,17 +2306,53 @@ export const getStats = async (
     misc.auctions_sell["items_sold"] = (misc.auctions_sell["items_sold"] || 0) + auctions_sold[key];
   }
 
+  misc.uncategorized = {};
+
+  if ("soulflow" in userProfile) {
+    misc.uncategorized.soulflow = {
+      raw: userProfile.soulflow,
+      formatted: helper.formatNumber(userProfile.soulflow),
+    };
+  }
+
+  if ("fastest_target_practice" in userProfile) {
+    misc.uncategorized.fastest_target_practice = {
+      raw: userProfile.fastest_target_practice,
+      formatted: `${helper.formatNumber(userProfile.fastest_target_practice)}s`,
+    };
+  }
+
+  if ("favorite_arrow" in userProfile) {
+    misc.uncategorized.favorite_arrow = {
+      raw: userProfile.favorite_arrow,
+      formatted: `${userProfile.favorite_arrow
+        .split("_")
+        .map((word) => helper.capitalizeFirstLetter(word.toLowerCase()))
+        .join(" ")}`,
+    };
+  }
+
+  if ("teleporter_pill_consumed" in userProfile) {
+    misc.uncategorized.teleporter_pill_consumed = {
+      raw: userProfile.teleporter_pill_consumed,
+      formatted: userProfile.teleporter_pill_consumed ? "Yes" : "No",
+    };
+  }
+
+  if ("reaper_peppers_eaten" in userProfile) {
+    misc.uncategorized.reaper_peppers_eaten = {
+      raw: userProfile.reaper_peppers_eaten,
+      formatted: helper.formatNumber(userProfile.reaper_peppers_eaten),
+    };
+  }
+
   output.misc = misc;
   output.auctions_bought = auctions_bought;
   output.auctions_sold = auctions_sold;
 
-  const last_updated = userProfile.last_save;
-  const first_join = userProfile.first_join;
+  const firstJoin = userProfile.first_join;
 
-  const diff = (+new Date() - last_updated) / 1000;
-
-  let last_updated_text = moment(last_updated).fromNow();
-  let first_join_text = moment(first_join).fromNow();
+  const firstJoinText = moment(firstJoin).fromNow();
 
   if ("current_area" in userProfile) {
     output.current_area = userProfile.current_area;
@@ -2542,20 +2362,9 @@ export const getStats = async (
     output.current_area_updated = userProfile.current_area_updated;
   }
 
-  if (diff < 3) {
-    last_updated_text = `Right now`;
-  } else if (diff < 60) {
-    last_updated_text = `${Math.floor(diff)} seconds ago`;
-  }
-
-  output.last_updated = {
-    unix: last_updated,
-    text: last_updated_text,
-  };
-
   output.first_join = {
-    unix: first_join,
-    text: first_join_text,
+    unix: firstJoin,
+    text: firstJoinText,
   };
 
   /*
@@ -2569,23 +2378,113 @@ export const getStats = async (
     lily: calculateLilyWeight(output),
   };
 
-  console.debug(`${options.debugId}: getStats returned. (${new Date().getTime() - timeStarted}ms)`);
-  return output;
-};
+  /*
 
-export async function getPets(profile) {
+    NETWORTH
+
+  */
+
+  output.networth = await getPreDecodedNetworth(
+    userProfile,
+    {
+      armor: items.armor,
+      equipment: items.equipment,
+      wardrobe: items.wardrobe_inventory,
+      inventory: items.inventory,
+      enderchest: items.enderchest,
+      accessories: items.accessory_bag,
+      personal_vault: items.personal_vault,
+      storage: items.storage.concat(items.storage.map((item) => item.containsItems).flat()),
+      fishing_bag: items.fishing_bag,
+      potion_bag: items.potion_bag,
+      candy_inventory: items.candy_bag,
+    },
+    output.bank,
+    { cache: true, onlyNetworth: true }
+  );
+
+  /*
+    century cake effects
+
+  */
+  const centuryCakes = [];
+
+  if (userProfile.temp_stat_buffs) {
+    for (const cake of userProfile.temp_stat_buffs) {
+      if (!cake.key.startsWith("cake_")) continue;
+      let stat = cake.key.replace("cake_", "");
+      if (Object.keys(constants.STAT_MAPPINGS).includes(stat)) {
+        stat = constants.STAT_MAPPINGS[stat];
+      }
+      centuryCakes.push({
+        stat: stat == "walk_speed" ? "speed" : stat,
+        amount: cake.amount,
+      });
+    }
+  }
+
+  output.century_cakes = centuryCakes;
+
+  output.reaper_peppers_eaten = userProfile.reaper_peppers_eaten ?? 0;
+
+  if (!userProfile.pets) {
+    userProfile.pets = [];
+  }
+  userProfile.pets.push(...items.pets);
+
+  output.pets = await getPets(userProfile, output);
+  output.missingPets = await getMissingPets(output.pets, profile.game_mode, output);
+  output.petScore = getPetScore(output.pets);
+
+  const petScoreRequired = Object.keys(constants.PET_REWARDS).sort((a, b) => parseInt(b) - parseInt(a));
+
+  output.pet_bonus = {};
+
+  for (const score of petScoreRequired) {
+    if (parseInt(score) > output.petScore) {
+      continue;
+    }
+
+    output.pet_score_bonus = Object.assign({}, constants.PET_REWARDS[score]);
+
+    break;
+  }
+
+  for (const pet of output.pets) {
+    if (!pet.active) {
+      continue;
+    }
+
+    for (const stat in pet.stats) {
+      output.pet_bonus[stat] = (output.pet_bonus[stat] || 0) + pet.stats[stat];
+    }
+  }
+
+  // Apply pet score bonus
+  for (const stat in output.pet_score_bonus) {
+    output.stats[stat] += output.pet_score_bonus[stat];
+  }
+
+  console.debug(`${options.debugId}: getStats returned. (${Date.now() - timeStarted}ms)`);
+  return output;
+}
+
+export async function getPets(profile, userProfile) {
   let output = [];
 
   if (!("pets" in profile)) {
     return output;
   }
 
+  // debug pets
+  // profile.pets = helper.generateDebugPets("BINGO");
+
   for (const pet of profile.pets) {
     if (!("tier" in pet)) {
       continue;
     }
 
-    const petData = constants.pet_data[pet.type] || {
+    const petData = constants.PET_DATA[pet.type] ?? {
       head: "/head/bc8ea1f51f253ff5142ca11ae45193a4ad8c3ab5e9c6eec8ba7a4fcb7bac40",
       type: "???",
       maxTier: "LEGENDARY",
@@ -2593,82 +2492,113 @@ export async function getPets(profile) {
       emoji: "❓",
     };
 
-    pet.rarity = pet.tier.toLowerCase();
+    petData.typeGroup = petData.typeGroup ?? pet.type;
 
-    if (pet.heldItem == "PET_ITEM_TIER_BOOST") {
+    pet.rarity = pet.tier.toLowerCase();
+    pet.stats = {};
+    pet.ignoresTierBoost = petData.ignoresTierBoost;
+    /** @type {string[]} */
+    const lore = [];
+
+    // Rarity upgrades
+    if (pet.heldItem == "PET_ITEM_TIER_BOOST" && !pet.ignoresTierBoost) {
       pet.rarity =
-        constants.rarities[
-          Math.min(
-            constants.rarities.indexOf(petData.maxTier.toLowerCase()),
-            constants.rarities.indexOf(pet.rarity) + 1
-          )
+        constants.RARITIES[
+          Math.min(constants.RARITIES.indexOf(petData.maxTier), constants.RARITIES.indexOf(pet.rarity) + 1)
         ];
     }
-
     if (pet.heldItem == "PET_ITEM_VAMPIRE_FANG" || pet.heldItem == "PET_ITEM_TOY_JERRY") {
-      if (constants.rarities.indexOf(pet.rarity) === constants.rarities.indexOf(petData.maxTier.toLowerCase()) - 1) {
-        pet.rarity = petData.maxTier.toLowerCase();
+      if (constants.RARITIES.indexOf(pet.rarity) === constants.RARITIES.indexOf(petData.maxTier) - 1) {
+        pet.rarity = petData.maxTier;
       }
     }
 
-    pet.level = getPetLevel(pet, petData.maxLevel);
-    pet.stats = {};
+    pet.level = getPetLevel(pet.exp, petData.customLevelExpRarityOffset ?? pet.rarity, petData.maxLevel);
 
-    pet.texture_path = petData.hatching?.level > pet.level.level ? petData.hatching.head : petData.head;
-
-    let petSkin = null;
-    if (pet.skin && constants.pet_skins?.[`PET_SKIN_${pet.skin}`]) {
-      pet.texture_path = constants.pet_skins[`PET_SKIN_${pet.skin}`].texture;
-      petSkin = constants.pet_skins[`PET_SKIN_${pet.skin}`].name;
+    // Get texture
+    if (typeof petData.head === "object") {
+      pet.texture_path = petData.head[pet.rarity] ?? petData.head.default;
+    } else {
+      pet.texture_path = petData.head;
     }
 
+    if (petData.hatching?.level > pet.level.level) {
+      pet.texture_path = petData.hatching.head;
+    }
+
+    // eslint-disable-next-line no-prototype-builtins
+    if (pet.rarity in (petData?.upgrades || {})) {
+      pet.texture_path = petData.upgrades[pet.rarity]?.head || pet.texture_path;
+    }
+
+    let petSkin = null;
+    if (pet.skin && constants.PET_SKINS?.[`PET_SKIN_${pet.skin}`]) {
+      pet.texture_path = constants.PET_SKINS[`PET_SKIN_${pet.skin}`].texture;
+      petSkin = constants.PET_SKINS[`PET_SKIN_${pet.skin}`].name;
+    }
+
+    // Get first row of lore
     const loreFirstRow = ["§8"];
 
     if (petData.type === "all") {
       loreFirstRow.push("All Skills");
     } else {
       loreFirstRow.push(helper.capitalizeFirstLetter(petData.type), " ", petData.category ?? "Pet");
+
+      if (petData.obtainsExp === "feed") {
+        loreFirstRow.push(", feed to gain XP");
+      }
+
       if (petSkin) {
         loreFirstRow.push(`, ${petSkin} Skin`);
       }
     }
 
-    const lore = [loreFirstRow.join(""), ""];
+    lore.push(loreFirstRow.join(""), "");
 
+    // Get name
     const petName =
       petData.hatching?.level > pet.level.level
         ? petData.hatching.name
+        : petData.name
+        ? petData.name[pet.rarity] ?? petData.name.default
         : helper.titleCase(pet.type.replaceAll("_", " "));
 
-    const rarity = constants.rarities.indexOf(pet.rarity);
+    const rarity = constants.RARITIES.indexOf(pet.rarity);
 
-    const searchName = pet.type in constants.petStats ? pet.type : "???";
-    const petInstance = new constants.petStats[searchName](rarity, pet.level.level);
+    const searchName = pet.type in constants.PET_STATS ? pet.type : "???";
+    const petInstance = new constants.PET_STATS[searchName](rarity, pet.level.level, pet.extra, userProfile);
     pet.stats = Object.assign({}, petInstance.stats);
+    petInstance.profile = null;
     pet.ref = petInstance;
 
     if (pet.heldItem) {
       const { heldItem } = pet;
       let heldItemObj = await db.collection("items").findOne({ id: heldItem });
 
-      if (heldItem in constants.pet_items) {
-        for (const stat in constants.pet_items[heldItem]?.stats) {
-          pet.stats[stat] = (pet.stats[stat] || 0) + constants.pet_items[heldItem].stats[stat];
+      if (heldItem in constants.PET_ITEMS) {
+        for (const stat in constants.PET_ITEMS[heldItem]?.stats) {
+          pet.stats[stat] = (pet.stats[stat] || 0) + constants.PET_ITEMS[heldItem].stats[stat];
         }
-        for (const stat in constants.pet_items[heldItem]?.statsPerLevel) {
+        for (const stat in constants.PET_ITEMS[heldItem]?.statsPerLevel) {
           pet.stats[stat] =
-            (pet.stats[stat] || 0) + constants.pet_items[heldItem].statsPerLevel[stat] * pet.level.level;
+            (pet.stats[stat] || 0) + constants.PET_ITEMS[heldItem].statsPerLevel[stat] * pet.level.level;
         }
-        for (const stat in constants.pet_items[heldItem]?.multStats) {
+        for (const stat in constants.PET_ITEMS[heldItem]?.multStats) {
           if (pet.stats[stat]) {
-            pet.stats[stat] = (pet.stats[stat] || 0) * constants.pet_items[heldItem].multStats[stat];
+            pet.stats[stat] = (pet.stats[stat] || 0) * constants.PET_ITEMS[heldItem].multStats[stat];
           }
         }
-        if ("multAllStats" in constants.pet_items[heldItem]) {
+        if ("multAllStats" in constants.PET_ITEMS[heldItem]) {
           for (const stat in pet.stats) {
-            pet.stats[stat] *= constants.pet_items[heldItem].multAllStats;
+            pet.stats[stat] *= constants.PET_ITEMS[heldItem].multAllStats;
           }
         }
+      }
+
+      // push specific pet lore before stats added
+      if (constants.PET_DATA[pet.type]?.subLore !== undefined) {
+        lore.push(constants.PET_DATA[pet.type].subLore, " ");
       }
 
       // push pet lore after held item stats added
@@ -2688,12 +2618,12 @@ export async function getPets(profile) {
 
       // now we push the lore of the held items
       if (!heldItemObj) {
-        heldItemObj = constants.pet_items[heldItem];
+        heldItemObj = constants.PET_ITEMS[heldItem];
       }
-      lore.push("", `§6Held Item: §${constants.rarityColors[heldItemObj.tier.toLowerCase()]}${heldItemObj.name}`);
+      lore.push("", `§6Held Item: §${constants.RARITY_COLORS[heldItemObj.tier.toLowerCase()]}${heldItemObj.name}`);
 
-      if (heldItem in constants.pet_items) {
-        lore.push(constants.pet_items[heldItem].description);
+      if (heldItem in constants.PET_ITEMS) {
+        lore.push(constants.PET_ITEMS[heldItem].description);
       }
       // extra line
       lore.push(" ");
@@ -2721,6 +2651,15 @@ export async function getPets(profile) {
       lore.push("§8This pet's perks are active even when the pet is not summoned!", "");
     }
 
+    // always gains exp text
+    if (petData.alwaysGainsExp) {
+      lore.push("§8This pet gains XP even when not summoned!", "");
+
+      if (typeof petData.alwaysGainsExp === "string") {
+        lore.push(`§8This pet only gains XP on the ${petData.alwaysGainsExp}§8!`, "");
+      }
+    }
+
     if (pet.level.level < petData.maxLevel) {
       lore.push(`§7Progress to Level ${pet.level.level + 1}: §e${(pet.level.progress * 100).toFixed(1)}%`);
 
@@ -2739,14 +2678,16 @@ export async function getPets(profile) {
         pet.level.xpMaxLevel,
         true,
         10
-      )} §6(${Math.floor((pet.exp / pet.level.xpMaxLevel) * 100)}%)`,
-      `§7Candy Used: §e${pet.candyUsed || 0} §6/ §e10`
+      )} §6(${Math.floor((pet.exp / pet.level.xpMaxLevel) * 100)}%)`
     );
+
+    if (petData.obtainsExp !== "feed") {
+      lore.push(`§7Candy Used: §e${pet.candyUsed || 0} §6/ §e10`);
+    }
 
     pet.lore = "";
 
-    // eslint-disable-next-line no-unused-vars
-    for (const [index, line] of lore.entries()) {
+    for (const line of lore) {
       pet.lore += '<span class="lore-row wrap">' + helper.renderLore(line) + "</span>";
     }
 
@@ -2781,7 +2722,7 @@ export async function getPets(profile) {
           }
         }
       } else {
-        return constants.rarities.indexOf(a.rarity) < constants.rarities.indexOf(b.rarity) ? 1 : -1;
+        return constants.RARITIES.indexOf(a.rarity) < constants.RARITIES.indexOf(b.rarity) ? 1 : -1;
       }
     }
 
@@ -2791,23 +2732,32 @@ export async function getPets(profile) {
   return output;
 }
 
-export async function getMissingPets(pets, gameMode) {
+async function getMissingPets(pets, gameMode, userProfile) {
   const profile = {
     pets: [],
   };
 
-  const ownedPetTypes = pets.map((a) => a.type);
+  const missingPets = [];
 
-  for (const [petType, petData] of Object.entries(constants.pet_data)) {
-    if (ownedPetTypes.includes(petType) || (petData.bingoOnly === true && gameMode !== "bingo")) {
+  const ownedPetTypes = pets.map((pet) => constants.PET_DATA[pet.type]?.typeGroup || pet.type);
+
+  for (const [petType, petData] of Object.entries(constants.PET_DATA)) {
+    if (
+      ownedPetTypes.includes(petData.typeGroup ?? petType) ||
+      (petData.bingoExclusive === true && gameMode !== "bingo")
+    ) {
       continue;
     }
 
-    profile.pets.push({
+    const key = petData.typeGroup ?? petType;
+
+    missingPets[key] ??= [];
+
+    missingPets[key].push({
       type: petType,
       active: false,
-      exp: getPetExp(constants.pet_data[petType].maxTier, constants.pet_data[petType].maxLevel),
-      tier: constants.pet_data[petType].maxTier,
+      exp: helper.getPetExp(constants.PET_DATA[petType].maxTier, constants.PET_DATA[petType].maxLevel),
+      tier: constants.PET_DATA[petType].maxTier,
       candyUsed: 0,
       heldItem: null,
       skin: null,
@@ -2815,41 +2765,58 @@ export async function getMissingPets(pets, gameMode) {
     });
   }
 
-  return getPets(profile);
+  for (const pets of Object.values(missingPets)) {
+    if (pets.length > 1) {
+      // using exp to find the highest tier
+      profile.pets.push(pets.sort((a, b) => b.exp - a.exp)[0]);
+      continue;
+    }
+
+    profile.pets.push(pets[0]);
+  }
+
+  return getPets(profile, userProfile);
 }
 
-export async function getPetScore(pets) {
+function getPetScore(pets) {
   const highestRarity = {};
 
   for (const pet of pets) {
-    if (!(pet.type in highestRarity) || constants.pet_value[pet.rarity] > highestRarity[pet.type]) {
-      highestRarity[pet.type] = constants.pet_value[pet.rarity];
+    if (!(pet.type in highestRarity) || constants.PET_VALUE[pet.rarity] > highestRarity[pet.type]) {
+      highestRarity[pet.type] = constants.PET_VALUE[pet.rarity];
     }
   }
 
   return Object.values(highestRarity).reduce((a, b) => a + b, 0);
 }
 
-export async function getMissingTalismans(talismans) {
-  let unique = Object.keys(constants.talismans);
+function getMissingAccessories(accessories) {
+  const ACCESSORIES = constants.getAllAccessories();
+  const unique = Object.keys(ACCESSORIES);
   unique.forEach((name) => {
-    if (name in constants.talisman_duplicates) {
-      for (let duplicate of constants.talisman_duplicates[name]) {
-        if (talismans.includes(duplicate)) {
-          talismans[talismans.indexOf(duplicate)] = name;
+    if (name in constants.accessoryAliases) {
+      for (const duplicate of constants.accessoryAliases[name]) {
+        if (accessories.includes(duplicate)) {
+          accessories[accessories.indexOf(duplicate)] = name;
           break;
         }
       }
     }
   });
 
-  let missing = unique.filter((talisman) => !talismans.includes(talisman));
+  let missing = unique.filter((accessory) => !accessories.includes(accessory));
+
   missing.forEach((name) => {
-    if (name in constants.talisman_upgrades) {
-      //if the name is in the upgrades list
-      for (let upgrade of constants.talisman_upgrades[name]) {
-        if (talismans.includes(upgrade)) {
-          //if talisman list includes the upgrade
+    if (constants.getUpgradeList(name)) {
+      // if accessory has upgrades
+      for (const upgrade of constants
+        .getUpgradeList(name)
+        .filter(
+          (item) => constants.getUpgradeList(name).indexOf(item) > constants.getUpgradeList(name).indexOf(name)
+        )) {
+        // for (const upgrade of every upgrade after the current tier)
+        if (accessories.includes(upgrade)) {
+          //if accessories list includes the upgrade
           missing = missing.filter((item) => item !== name);
           break;
         }
@@ -2859,27 +2826,27 @@ export async function getMissingTalismans(talismans) {
 
   const upgrades = [];
   const other = [];
-  missing.forEach(async (talisman) => {
-    let object = {
+  missing.forEach(async (accessory) => {
+    const object = {
       display_name: null,
       rarity: null,
       texture_path: null,
     };
 
-    object.name ??= talisman;
+    object.name ??= accessory;
 
-    // MAIN TALISMANS
-    if (constants.talismans[talisman] != null) {
-      const data = constants.talismans[talisman];
+    // MAIN ACCESSORIES
+    if (ACCESSORIES[accessory] != null) {
+      const data = ACCESSORIES[accessory];
 
       object.texture_path = data.texture || null;
       object.display_name = data.name || null;
-      object.rarity = data.rarity || null;
+      object.rarity = data.tier || data.rarity || null;
     } else {
-      const data = await db.collection("items").findOne({ id: talisman });
+      const data = await db.collection("items").findOne({ id: accessory });
 
       if (data) {
-        object.texture_path = data.texture ? `/head/${data.texture}` : `/item/${talisman}`;
+        object.texture_path = data.texture ? `/head/${data.texture}` : `/item/${accessory}`;
         object.display_name = data.name;
         object.rarity = data.tier.toLowerCase();
       }
@@ -2887,11 +2854,10 @@ export async function getMissingTalismans(talismans) {
 
     let includes = false;
 
-    for (const array of Object.values(constants.talisman_upgrades)) {
-      if (array.includes(talisman)) {
-        includes = true;
-      }
+    if (constants.getUpgradeList(accessory)?.[0] !== accessory && constants.getUpgradeList(accessory)) {
+      includes = true;
     }
+
     if (includes) {
       upgrades.push(object);
     } else {
@@ -2944,7 +2910,7 @@ export async function getCollections(uuid, profile, cacheOnly = false) {
       output[type] = { tier, amount, totalAmount, amounts };
     }
 
-    const collectionData = constants.collection_data.find((a) => a.skyblockId == type);
+    const collectionData = constants.COLLECTION_DATA.find((a) => a.skyblockId == type);
 
     for (const tier of collectionData?.tiers ?? []) {
       if (totalAmount >= tier.amountRequired) {
@@ -2956,13 +2922,72 @@ export async function getCollections(uuid, profile, cacheOnly = false) {
   return output;
 }
 
-export async function getDungeons(userProfile, hypixelProfile) {
-  let output = {};
+export function getBestiary(uuid, profile) {
+  const output = {};
+
+  const userProfile = profile.members[uuid];
+
+  if (!("unlocked_coll_tiers" in userProfile) || !("collection" in userProfile)) {
+    return output;
+  }
+
+  const result = {
+    level: 0,
+    categories: {},
+  };
+
+  let totalCollection = 0;
+  const bestiaryFamilies = {};
+  for (const [name, value] of Object.entries(userProfile.bestiary || {})) {
+    if (name.startsWith("kills_family_")) {
+      bestiaryFamilies[name] = value;
+    }
+  }
+
+  for (const family of Object.keys(constants.BESTIARY)) {
+    result.categories[family] = {};
+    for (const mob of constants.BESTIARY[family].mobs) {
+      const mobName = mob.id.substring(13);
+
+      const boss = mob.boss == true ? "boss" : "regular";
+
+      const kills = bestiaryFamilies[mob.id] || 0;
+      const head = mob.head;
+      const itemId = mob.itemId;
+      const damage = mob.damage;
+      const name = mob.name;
+      const maxTier = mob.maxTier ?? 41;
+      const tier =
+        constants.BEASTIARY_KILLS[boss].filter((k) => k <= kills).length > maxTier
+          ? maxTier
+          : constants.BEASTIARY_KILLS[boss].filter((k) => k <= kills).length;
+      totalCollection += tier;
+
+      result.categories[family][mobName] = {
+        head: head,
+        name: name,
+        itemId: itemId,
+        damage: damage,
+        tier: tier,
+        maxTier: maxTier,
+        kills: kills,
+      };
+    }
+  }
+  result.tiersUnlocked = totalCollection;
+  result.level = totalCollection / 10;
+  result.bonus = result.level.toFixed(0) * 2;
+
+  return result;
+}
+
+export function getDungeons(userProfile, hypixelProfile) {
+  const output = {};
 
   const dungeons = userProfile.dungeons;
   if (dungeons == null || Object.keys(dungeons).length === 0) return output;
 
-  const dungeons_data = constants.dungeons;
+  const dungeons_data = constants.DUNGEONS;
   if (dungeons.dungeon_types == null || Object.keys(dungeons.dungeon_types).length === 0) return output;
 
   // Main Dungeons Data
@@ -2973,7 +2998,7 @@ export async function getDungeons(userProfile, hypixelProfile) {
       continue;
     }
 
-    let floors = {};
+    const floors = {};
 
     for (const key of Object.keys(dungeon)) {
       if (typeof dungeon[key] != "object") continue;
@@ -2986,7 +3011,7 @@ export async function getDungeons(userProfile, hypixelProfile) {
           };
         }
 
-        let id = `${type}_${floor}`; // Floor ID
+        const id = `${type}_${floor}`; // Floor ID
         if (dungeons_data.floors[id]) {
           if (dungeons_data.floors[id].name) {
             floors[floor].name = dungeons_data.floors[id].name;
@@ -3011,8 +3036,8 @@ export async function getDungeons(userProfile, hypixelProfile) {
       }
     }
 
-    let dungeon_id = `dungeon_${type}`; // Dungeon ID
-    let highest_floor = dungeon.highest_tier_completed || 0;
+    const dungeon_id = `dungeon_${type}`; // Dungeon ID
+    const highest_floor = dungeon.highest_tier_completed || 0;
     output[type] = {
       id: dungeon_id,
       visited: true,
@@ -3027,11 +3052,12 @@ export async function getDungeons(userProfile, hypixelProfile) {
 
   // Classes
   output.classes = {};
+  output.class_average = {};
 
   let used_classes = false;
-  let current_class = dungeons.selected_dungeon_class || "none";
+  const current_class = dungeons.selected_dungeon_class || "none";
   for (const className of Object.keys(dungeons.player_classes)) {
-    let data = dungeons.player_classes[className];
+    const data = dungeons.player_classes[className];
 
     if (!data.experience) {
       data.experience = 0;
@@ -3048,9 +3074,21 @@ export async function getDungeons(userProfile, hypixelProfile) {
     if (className == current_class) {
       output.classes[className].current = true;
     }
+
+    output.class_average.experience ??= 0;
+    output.class_average.experience += output.classes[className].experience.xp;
   }
 
   output.used_classes = used_classes;
+  output.class_average.avrg_level = Object.keys(output.classes)
+    .map((key) => output.classes[key].experience.level / Object.keys(output.classes).length)
+    .reduce((a, b) => a + b, 0);
+  output.class_average.avrg_level_with_progress = Object.keys(output.classes)
+    .map((key) => output.classes[key].experience.levelWithProgress / Object.keys(output.classes).length)
+    .reduce((a, b) => a + b, 0);
+  output.class_average.max =
+    Object.keys(output.classes).filter((key) => output.classes[key].experience.level >= 50).length ===
+    Object.keys(output.classes).length;
 
   output.selected_class = current_class;
   output.secrets_found = hypixelProfile.achievements.skyblock_treasure_hunter || 0;
@@ -3060,24 +3098,24 @@ export async function getDungeons(userProfile, hypixelProfile) {
   // Boss Collections
   const collection_data = dungeons_data.boss_collections;
   const boss_data = dungeons_data.bosses;
-  let collections = {};
+  const collections = {};
 
   for (const coll_id in collection_data) {
-    let coll = collection_data[coll_id];
-    let boss = boss_data[coll.boss];
+    const coll = collection_data[coll_id];
+    const boss = boss_data[coll.boss];
 
     for (const floor_id of boss.floors) {
       // This can be done much better. But I didn't want to deal with it.
-      let a = floor_id.split("_");
-      let dung_floor = a.pop();
-      let dung_name = a.join("_");
+      const a = floor_id.split("_");
+      const dung_floor = a.pop();
+      const dung_name = a.join("_");
 
       // I can't put these two into a single if. Welp, doesn't seem like a problem.
       if (output[dung_name] == null || !output[dung_name]?.visited) continue;
       if (output[dung_name].floors[dung_floor] == null) continue;
 
-      let data = output[dung_name].floors[dung_floor];
-      let num = data.stats.tier_completions || 0;
+      const data = output[dung_name].floors[dung_floor];
+      const num = data.stats.tier_completions || 0;
 
       if (num <= 0) continue;
 
@@ -3103,11 +3141,11 @@ export async function getDungeons(userProfile, hypixelProfile) {
       continue;
     }
 
-    for (const reward_id in coll.rewards) {
-      let reward = coll.rewards[reward_id];
+    for (const rewardId in coll.rewards) {
+      const reward = coll.rewards[rewardId];
       if (collections[coll_id].killed >= reward.required) {
         collections[coll_id].tier = reward.tier;
-        if (reward_id != "coming_soon") collections[coll_id].unclaimed++;
+        if (rewardId != "coming_soon") collections[coll_id].unclaimed++;
       } else {
         break;
       }
@@ -3121,15 +3159,15 @@ export async function getDungeons(userProfile, hypixelProfile) {
   const tasks = userProfile.tutorial;
   for (const i in tasks) {
     if (!tasks[i].startsWith("boss_collection_claimed")) continue;
-    let task = tasks[i].split("_").splice(3);
+    const task = tasks[i].split("_").splice(3);
 
     if (!Object.keys(boss_data).includes(task[0])) continue;
-    let boss = boss_data[task[0]];
+    const boss = boss_data[task[0]];
 
     if (!Object.keys(collection_data).includes(boss.collection)) continue;
-    let coll = collection_data[boss.collection];
+    const coll = collection_data[boss.collection];
 
-    let item = coll.rewards[task.splice(1).join("_")];
+    const item = coll.rewards[task.splice(1).join("_")];
 
     if (item == null || boss == null) continue;
     collections[boss.collection].claimed.push(item.name);
@@ -3145,47 +3183,29 @@ export async function getDungeons(userProfile, hypixelProfile) {
   output.boss_collections = collections;
 
   // Journal Entries
-  const journal_constants = constants.dungeons.journals;
-  const journal_entries = dungeons.dungeon_journal.journal_entries;
-  let journals = {
+  const JOURNAL_CONSTANTS = constants.DUNGEONS.journals;
+  const journals = {
     pages_collected: 0,
     journals_completed: 0,
     total_pages: 0,
-    maxed: false,
-    journal_entries: [],
+    journal_entries: dungeons.dungeon_journal.unlocked_journals,
   };
 
-  for (const entry_id in journal_entries) {
-    let entry = {
-      name: journal_constants[entry_id] ? journal_constants[entry_id].name : entry_id,
-      pages_collected: journal_entries[entry_id].length || 0,
-      total_pages: journal_constants[entry_id] ? journal_constants[entry_id].pages : null,
-    };
-
-    journals.pages_collected += entry.pages_collected;
-    if (entry.total_pages != null) {
-      if (entry.pages_collected >= entry.total_pages) {
-        journals.journals_completed++;
-      }
-    }
-
-    journals.journal_entries.push(entry);
+  for (const entryID of dungeons.dungeon_journal.unlocked_journals) {
+    journals.journals_completed += 1;
+    journals.pages_collected += JOURNAL_CONSTANTS[entryID]?.pages || 0;
   }
 
-  for (const entry_id in journal_constants) {
-    journals.total_pages += journal_constants[entry_id].pages || 0;
-  }
-
-  if (journals.pages_collected >= journals.total_pages) {
-    journals.maxed = true;
+  for (const journal in JOURNAL_CONSTANTS) {
+    journals.total_pages += JOURNAL_CONSTANTS[journal].pages;
   }
 
   output.journals = journals;
 
   // Level Bonuses (Only Catacombs Item Boost right now)
-  for (let name in constants.dungeons.level_bonuses) {
-    let level_stats = constants.dungeons.level_bonuses[name];
-    let steps = Object.keys(level_stats)
+  for (const name in constants.DUNGEONS.level_bonuses) {
+    const level_stats = constants.DUNGEONS.level_bonuses[name];
+    const steps = Object.keys(level_stats)
       .sort((a, b) => Number(a) - Number(b))
       .map((a) => Number(a));
 
@@ -3206,12 +3226,12 @@ export async function getDungeons(userProfile, hypixelProfile) {
         break;
       }
 
-      let level_step = steps
+      const level_step = steps
         .slice()
         .reverse()
         .find((a) => a <= x);
 
-      let level_bonus = level_stats[level_step];
+      const level_bonus = level_stats[level_step];
 
       for (const bonus in level_bonus) {
         switch (name) {
@@ -3225,17 +3245,18 @@ export async function getDungeons(userProfile, hypixelProfile) {
   return output;
 }
 
-export async function getEssence(userProfile, hypixelProfile) {
-  let output = {};
+function getEssence(userProfile, hypixelProfile) {
+  /** @type {{[key:string]: number}} */
+  const output = {};
 
-  for (const essence in constants.essence) {
+  for (const essence in constants.ESSENCE) {
     output[essence] = userProfile?.[`essence_${essence}`] ?? 0;
   }
 
   return output;
 }
 
-export function getHotmItems(userProfile, packs) {
+function getHotmItems(userProfile, packs) {
   const data = userProfile.mining_core;
   const output = [];
 
@@ -3259,16 +3280,16 @@ export function getHotmItems(userProfile, packs) {
 
   // Check for missing node classes
   for (const nodeId in nodes) {
-    if (constants.hotm.nodes[nodeId] == undefined) {
+    if (constants.HOTM.nodes[nodeId] == undefined) {
       throw new Error(`Missing Heart of the Mountain node: ${nodeId}`);
     }
   }
 
   // Processing nodes
-  for (const nodeId in constants.hotm.nodes) {
+  for (const nodeId in constants.HOTM.nodes) {
     const enabled = toggles[`toggle_${nodeId}`] ?? true;
     const level = nodes[nodeId] ?? 0;
-    const node = new constants.hotm.nodes[nodeId]({
+    const node = new constants.HOTM.nodes[nodeId]({
       level,
       enabled,
       nodes,
@@ -3292,8 +3313,8 @@ export function getHotmItems(userProfile, packs) {
   }
 
   // Processing HotM tiers
-  for (let tier = 1; tier <= constants.hotm.tiers; tier++) {
-    const hotm = new constants.hotm.hotm(tier, hotmLevelData);
+  for (let tier = 1; tier <= constants.HOTM.tiers; tier++) {
+    const hotm = new constants.HOTM.hotm(tier, hotmLevelData);
 
     output[hotm.position7x9 - 1] = helper.generateItem({
       display_name: `Tier ${tier}`,
@@ -3311,7 +3332,7 @@ export function getHotmItems(userProfile, packs) {
   }
 
   // Processing HotM items (stats, hc crystals, reset)
-  for (const itemClass of constants.hotm.items) {
+  for (const itemClass of constants.HOTM.items) {
     const item = new itemClass({
       resources: {
         token_of_the_mountain: mcdata.tokens,
@@ -3340,7 +3361,10 @@ export function getHotmItems(userProfile, packs) {
 
   // Processing textures
   output.forEach(async (item) => {
-    const customTexture = await getTexture(item, false, packs);
+    const customTexture = await getTexture(item, {
+      ignore_id: false,
+      pack_ids: packs,
+    });
 
     if (customTexture) {
       item.animated = customTexture.animated;
@@ -3354,7 +3378,7 @@ export function getHotmItems(userProfile, packs) {
   return output;
 }
 
-export function getMiningCoreData(userProfile) {
+function getMiningCoreData(userProfile) {
   const output = {};
   const data = userProfile.mining_core;
 
@@ -3364,7 +3388,7 @@ export function getMiningCoreData(userProfile) {
 
   output.tier = getLevelByXp(data.experience, { type: "hotm" });
 
-  const totalTokens = helper.calcHotmTokens(output.tier.level, data.nodes.special_0);
+  const totalTokens = helper.calcHotmTokens(output.tier.level, data.nodes?.special_0 || 0);
   output.tokens = {
     total: totalTokens,
     spent: data.tokens_spent || 0,
@@ -3372,7 +3396,7 @@ export function getMiningCoreData(userProfile) {
   };
 
   output.selected_pickaxe_ability = data.selected_pickaxe_ability
-    ? constants.hotm.names[data.selected_pickaxe_ability]
+    ? constants.HOTM.names[data.selected_pickaxe_ability]
     : null;
 
   output.powder = {
@@ -3424,28 +3448,30 @@ export function getMiningCoreData(userProfile) {
     last_changed: data.current_daily_effect_last_changed || null,
   };
 
+  output.nodes = data.nodes || {};
+
   return output;
 }
 
-export async function getForge(userProfile) {
-  let output = {};
+async function getForge(userProfile) {
+  const output = {};
 
   if (userProfile?.forge?.forge_processes?.forge_1) {
     const forge = Object.values(userProfile.forge.forge_processes.forge_1);
     const processes = [];
     for (const item of forge) {
-      let forgeItem = {
+      const forgeItem = {
         id: item.id,
         slot: item.slot,
         timeFinished: 0,
         timeFinishedText: "",
       };
 
-      if (item.id in constants.forge_times) {
-        let forgeTime = constants.forge_times[item.id] * 60 * 1000; // convert minutes to milliseconds
+      if (item.id in constants.FORGE_TIMES) {
+        let forgeTime = constants.FORGE_TIMES[item.id] * 60 * 1000; // convert minutes to milliseconds
         const quickForge = userProfile.mining_core?.nodes?.forge_time;
         if (quickForge != null) {
-          forgeTime *= constants.quick_forge_multiplier[quickForge];
+          forgeTime *= constants.QUICK_FORGE_MULTIPLIER[quickForge];
         }
         const dbObject = await db.collection("items").findOne({ id: item.id });
 
@@ -3464,9 +3490,9 @@ export async function getForge(userProfile) {
   return output;
 }
 
-export async function getProfileUpgrades(profile) {
+function getProfileUpgrades(profile) {
   const output = {};
-  for (const upgrade in constants.profile_upgrades) {
+  for (const upgrade in constants.PROFILE_UPGRADES) {
     output[upgrade] = 0;
   }
   if (profile.community_upgrades?.upgrade_states != undefined) {
@@ -3477,14 +3503,14 @@ export async function getProfileUpgrades(profile) {
   return output;
 }
 
-export const getProfile = async (
+export async function getProfile(
   db,
   paramPlayer,
   paramProfile,
   options = { cacheOnly: false, debugId: `${helper.getClusterId()}/unknown@getProfile` }
-) => {
+) {
   console.debug(`${options.debugId}: getProfile called.`);
-  const timeStarted = new Date().getTime();
+  const timeStarted = Date.now();
 
   if (paramPlayer.length != 32) {
     try {
@@ -3512,11 +3538,11 @@ export const getProfile = async (
 
   let lastCachedSave = 0;
 
+  const profileData = [];
   if (profileObject) {
-    const profileData = db
-      .collection("profileCache")
-      .find({ profile_id: { $in: Object.keys(profileObject.profiles) } });
-
+    for (const pId of Object.keys(profileObject.profiles)) {
+      profileData.push(await db.collection("profileCache").findOne({ profile_id: pId }));
+    }
     for await (const doc of profileData) {
       if (doc.members?.[paramPlayer] == undefined) {
         continue;
@@ -3525,8 +3551,6 @@ export const getProfile = async (
       Object.assign(doc, profileObject.profiles[doc.profile_id]);
 
       allSkyBlockProfiles.push(doc);
-
-      lastCachedSave = Math.max(lastCachedSave, doc.members[paramPlayer].last_save || 0);
     }
   } else {
     profileObject = { last_update: 0 };
@@ -3534,17 +3558,18 @@ export const getProfile = async (
 
   let response = null;
 
+  lastCachedSave = Math.max(profileObject.last_update, Date.now() || 0);
+
   if (
     !options.cacheOnly &&
     ((Date.now() - lastCachedSave > 190 * 1000 && Date.now() - lastCachedSave < 300 * 1000) ||
       Date.now() - profileObject.last_update >= 300 * 1000)
   ) {
     try {
+      profileObject.last_update = Date.now();
       response = await retry(
         async () => {
-          return await Hypixel.get("skyblock/profiles", {
-            params,
-          });
+          return await hypixel.get("skyblock/profiles", { params });
         },
         { retries: 2 }
       );
@@ -3574,12 +3599,6 @@ export const getProfile = async (
   }
 
   for (const profile of allSkyBlockProfiles) {
-    for (const member in profile.members) {
-      if (profile.members[member]?.last_save == undefined) {
-        delete profile.members[member];
-      }
-    }
-
     profile.uuid = paramPlayer;
   }
 
@@ -3587,32 +3606,7 @@ export const getProfile = async (
 
   if (paramProfile) {
     if (paramProfile.length == 32) {
-      const filteredProfiles = allSkyBlockProfiles.filter((a) => a.profile_id.toLowerCase() == paramProfile);
-
-      if (filteredProfiles.length > 0) {
-        skyBlockProfiles = filteredProfiles;
-      } else {
-        const profileResponse = await retry(async () => {
-          const response = await Hypixel.get(
-            "skyblock/profile",
-            {
-              params: { key: credentials.hypixel_api_key, profile: paramProfile },
-            },
-            { retries: 2 }
-          );
-
-          if (!response.data.success) {
-            throw new Error("api request failed");
-          }
-
-          return response.data.profile;
-        });
-
-        profileResponse.cute_name = "Deleted";
-        profileResponse.uuid = paramPlayer;
-
-        skyBlockProfiles.push(profileResponse);
-      }
+      skyBlockProfiles = allSkyBlockProfiles.filter((a) => a.profile_id.toLowerCase() == paramProfile);
     } else {
       skyBlockProfiles = allSkyBlockProfiles.filter((a) => a.cute_name.toLowerCase() == paramProfile);
     }
@@ -3624,14 +3618,11 @@ export const getProfile = async (
 
   const profiles = [];
 
-  // eslint-disable-next-line no-unused-vars
-  for (const [index, profile] of skyBlockProfiles.entries()) {
+  for (const profile of skyBlockProfiles) {
     let memberCount = 0;
 
-    for (const member in profile.members) {
-      if (profile.members[member]?.last_save != undefined) {
-        memberCount++;
-      }
+    for (let i = 0; i < Object.keys(profile.members).length; i++) {
+      memberCount++;
     }
 
     if (memberCount == 0) {
@@ -3649,13 +3640,12 @@ export const getProfile = async (
     throw new Error("No data returned by Hypixel API, please try again!");
   }
 
-  let highest = 0;
   let profile;
 
   const storeProfiles = {};
 
   for (const _profile of allSkyBlockProfiles) {
-    let userProfile = _profile.members[paramPlayer];
+    const userProfile = _profile.members[paramPlayer];
 
     if (!userProfile) {
       continue;
@@ -3680,32 +3670,34 @@ export const getProfile = async (
         .catch(console.error);
     }
 
-    if ("last_save" in userProfile) {
-      storeProfiles[_profile.profile_id] = {
-        profile_id: _profile.profile_id,
-        cute_name: _profile.cute_name,
-        game_mode: _profile.game_mode,
-        last_save: userProfile.last_save,
-      };
-    }
+    storeProfiles[_profile.profile_id] = {
+      profile_id: _profile.profile_id ?? null,
+      cute_name: _profile.cute_name ?? "Unknown",
+      game_mode: _profile.game_mode ?? "normal",
+      selected: _profile.selected ?? false,
+    };
   }
 
-  // eslint-disable-next-line no-unused-vars
-  for (const [index, _profile] of profiles.entries()) {
+  for (const _profile of profiles) {
     if (_profile === undefined || _profile === null) {
       return;
     }
 
-    let userProfile = _profile.members[paramPlayer];
-
-    if (userProfile?.last_save > highest) {
+    if (
+      _profile?.selected ||
+      _profile.profile_id.toLowerCase() == paramProfile ||
+      _profile.cute_name.toLowerCase() == paramProfile
+    ) {
       profile = _profile;
-      highest = userProfile.last_save;
     }
   }
 
   if (!profile) {
-    throw new Error("User not found in selected profile. This is probably due to a declined co-op invite.");
+    profile = profiles[0];
+
+    if (!profile) {
+      throw new Error("Couldn't find any Skyblock profile that belongs to this player.");
+    }
   }
 
   const userProfile = profile.members[paramPlayer];
@@ -3714,9 +3706,7 @@ export const getProfile = async (
     userProfile.current_area = profileObject.current_area;
   }
 
-  if (Date.now() - userProfile.last_save < 5 * 60 * 1000) {
-    userProfile.current_area_updated = true;
-  }
+  userProfile.current_area_updated = true;
 
   if (response && response.request.fromCache !== true) {
     const apisEnabled =
@@ -3726,28 +3716,25 @@ export const getProfile = async (
 
     const insertProfileStore = {
       last_update: new Date(),
-      last_save: Math.max(...allSkyBlockProfiles.map((a) => a.members?.[paramPlayer]?.last_save ?? 0)),
       apis: apisEnabled,
       profiles: storeProfiles,
     };
 
-    if (options.updateArea && Date.now() - userProfile.last_save < 5 * 60 * 1000) {
-      try {
-        const statusResponse = await Hypixel.get("status", {
-          params: { uuid: paramPlayer, key: credentials.hypixel_api_key },
-        });
+    try {
+      const statusResponse = await hypixel.get("status", {
+        params: { uuid: paramPlayer, key: credentials.hypixel_api_key },
+      });
 
-        const areaData = statusResponse.data.session;
+      const areaData = statusResponse.data.session;
 
-        if (areaData.online && areaData.gameType == "SKYBLOCK") {
-          const areaName = constants.area_names[areaData.mode] || helper.titleCase(areaData.mode.replaceAll("_", " "));
+      if (areaData.online && areaData.gameType == "SKYBLOCK") {
+        const areaName = constants.AREA_NAMES[areaData.mode] || helper.titleCase(areaData.mode.replaceAll("_", " "));
 
-          userProfile.current_area = areaName;
-          insertProfileStore.current_area = areaName;
-        }
-      } catch (e) {
-        console.error(e);
+        userProfile.current_area = areaName;
+        insertProfileStore.current_area = areaName;
       }
+    } catch (e) {
+      console.error(e);
     }
 
     updateLeaderboardPositions(db, paramPlayer, allSkyBlockProfiles).catch(console.error);
@@ -3757,12 +3744,12 @@ export const getProfile = async (
       .catch(console.error);
   }
 
-  console.debug(`${options.debugId}: getProfile returned. (${new Date().getTime() - timeStarted}ms)`);
+  console.debug(`${options.debugId}: getProfile returned. (${Date.now() - timeStarted}ms)`);
   return { profile: profile, allProfiles: allSkyBlockProfiles, uuid: paramPlayer };
-};
+}
 
-export async function updateLeaderboardPositions(db, uuid, allProfiles) {
-  if (constants.blocked_players.includes(uuid)) {
+async function updateLeaderboardPositions(db, uuid, allProfiles) {
+  if (constants.BLOCKED_PLAYERS.includes(uuid)) {
     return;
   }
 
@@ -3790,8 +3777,8 @@ export async function updateLeaderboardPositions(db, uuid, allProfiles) {
 
       userProfile.slayer_xp = totalSlayerXp;
 
-      for (const mountMob in constants.mob_mounts) {
-        const mounts = constants.mob_mounts[mountMob];
+      for (const mountMob in constants.MOB_MOUNTS) {
+        const mounts = constants.MOB_MOUNTS[mountMob];
 
         userProfile.stats[`kills_${mountMob}`] = 0;
         userProfile.stats[`deaths_${mountMob}`] = 0;
@@ -3815,7 +3802,7 @@ export async function updateLeaderboardPositions(db, uuid, allProfiles) {
           continue;
         }
 
-        maxPetRarity[pet.type] = Math.max(maxPetRarity[pet.type] || 0, constants.pet_value[pet.tier.toLowerCase()]);
+        maxPetRarity[pet.type] = Math.max(maxPetRarity[pet.type] || 0, constants.PET_VALUE[pet.tier.toLowerCase()]);
       }
 
       for (const key in maxPetRarity) {
@@ -3883,11 +3870,11 @@ export async function updateLeaderboardPositions(db, uuid, allProfiles) {
         break;
       default:
         for (const floor of getAllKeys(memberProfiles, "data", "dungeons", "dungeon_types", "catacombs", stat)) {
-          const floor_id = `catacombs_${floor}`;
-          if (!constants.dungeons.floors[floor_id] || !constants.dungeons.floors[floor_id].name) continue;
+          const floorId = `catacombs_${floor}`;
+          if (!constants.DUNGEONS.floors[floorId] || !constants.DUNGEONS.floors[floorId].name) continue;
 
-          const floor_name = constants.dungeons.floors[floor_id].name;
-          values[`dungeons_catacombs_${floor_name}_${stat}`] = getMax(
+          const floorName = constants.DUNGEONS.floors[floorId].name;
+          values[`dungeons_catacombs_${floorName}_${stat}`] = getMax(
             memberProfiles,
             "data",
             "dungeons",
@@ -3900,13 +3887,13 @@ export async function updateLeaderboardPositions(db, uuid, allProfiles) {
     }
   }
 
-  for (const dungeon_class of getAllKeys(memberProfiles, "data", "dungeons", "player_classes")) {
-    values[`dungeons_class_${dungeon_class}_xp`] = getMax(
+  for (const dungeonClass of getAllKeys(memberProfiles, "data", "dungeons", "player_classes")) {
+    values[`dungeons_class_${dungeonClass}_xp`] = getMax(
       memberProfiles,
       "data",
       "dungeons",
       "player_classes",
-      dungeon_class,
+      dungeonClass,
       "experience"
     );
   }
@@ -3945,10 +3932,6 @@ export async function updateLeaderboardPositions(db, uuid, allProfiles) {
   }
 }
 
-export function getPacks() {
-  return packs.sort((a, b) => b.priority - a.priority);
-}
-
 async function init() {
   const response = await axios("https://api.hypixel.net/resources/skyblock/collections");
 
@@ -3960,7 +3943,7 @@ async function init() {
     for (const itemType in response.data.collections[type].items) {
       const item = response.data.collections[type].items[itemType];
       try {
-        const collectionData = constants.collection_data.find((a) => a.skyblockId == itemType);
+        const collectionData = constants.COLLECTION_DATA.find((a) => a.skyblockId == itemType);
 
         collectionData.maxTier = item.maxTiers;
         collectionData.tiers = item.tiers;

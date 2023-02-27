@@ -4,6 +4,8 @@ import tippy from "tippy.js";
 
 import { renderLore } from "../../../common/formatting.js";
 
+import { getPlayerStats } from "./calculate-player-stats";
+
 import("./elements/inventory-view");
 
 const favoriteElement = document.querySelector(".favorite") as HTMLButtonElement;
@@ -33,16 +35,16 @@ if ("share" in navigator) {
   });
 }
 
-function getCookie(c_name: string) {
+function getCookie(cookieName: string) {
   if (document.cookie.length > 0) {
-    let c_start = document.cookie.indexOf(c_name + "=");
-    if (c_start != -1) {
-      c_start = c_start + c_name.length + 1;
-      let c_end = document.cookie.indexOf(";", c_start);
-      if (c_end == -1) {
-        c_end = document.cookie.length;
+    let cookieStart = document.cookie.indexOf(cookieName + "=");
+    if (cookieStart != -1) {
+      cookieStart = cookieStart + cookieName.length + 1;
+      let cookieEnd = document.cookie.indexOf(";", cookieStart);
+      if (cookieEnd == -1) {
+        cookieEnd = document.cookie.length;
       }
-      return decodeURIComponent(document.cookie.substring(c_start, c_end));
+      return decodeURIComponent(document.cookie.substring(cookieStart, cookieEnd));
     }
   }
   return "";
@@ -123,12 +125,13 @@ tippy(".interactive-tooltip", {
   },
 });
 
-export const allItems = new Map(
+export const ALL_ITEMS = new Map(
   [
     items.armor,
+    items.equipment,
     items.inventory,
     items.enderchest,
-    items.talisman_bag,
+    items.accessory_bag,
     items.fishing_bag,
     items.quiver,
     items.potion_bag,
@@ -249,16 +252,17 @@ function fillLore(element: HTMLElement) {
 
   if (element.hasAttribute("data-item-id")) {
     const itemId = element.getAttribute("data-item-id") as string;
-    item = allItems.get(itemId) as Item;
+    item = ALL_ITEMS.get(itemId) as Item;
   } else if (element.hasAttribute("data-pet-index")) {
     item = calculated.pets[parseInt(element.getAttribute("data-pet-index") as string)];
   } else if (element.hasAttribute("data-missing-pet-index")) {
     item = calculated.missingPets[parseInt(element.getAttribute("data-missing-pet-index") as string)];
-  } else if (element.hasAttribute("data-missing-talisman-index")) {
-    item = calculated.missingTalismans.missing[parseInt(element.getAttribute("data-missing-talisman-index") as string)];
-  } else if (element.hasAttribute("data-upgrade-talisman-index")) {
+  } else if (element.hasAttribute("data-missing-accessory-index")) {
     item =
-      calculated.missingTalismans.upgrades[parseInt(element.getAttribute("data-upgrade-talisman-index") as string)];
+      calculated.missingAccessories.missing[parseInt(element.getAttribute("data-missing-accessory-index") as string)];
+  } else if (element.hasAttribute("data-upgrade-accessory-index")) {
+    item =
+      calculated.missingAccessories.upgrades[parseInt(element.getAttribute("data-upgrade-accessory-index") as string)];
   }
 
   if (item == undefined) {
@@ -266,9 +270,13 @@ function fillLore(element: HTMLElement) {
   }
 
   itemName.className = `item-name piece-${item.rarity || "common"}-bg nice-colors-dark`;
-  itemNameContent.innerHTML = item.display_name || "null";
+  const itemNameHtml = renderLore((item as Item).tag?.display?.Name ?? item.display_name ?? "???");
+  const isMulticolor = (itemNameHtml.match(/<\/span>/g) || []).length > 1;
+  itemNameContent.dataset.multicolor = String(isMulticolor);
+  itemNameContent.innerHTML = isMulticolor ? itemNameHtml : item.display_name ?? "???";
 
   if (element.hasAttribute("data-pet-index")) {
+    itemNameContent.dataset.multicolor = "false";
     itemNameContent.innerHTML = `[Lvl ${(item as Pet).level.level}] ${item.display_name}`;
   }
 
@@ -279,7 +287,7 @@ function fillLore(element: HTMLElement) {
     itemIcon.removeAttribute("style");
     itemIcon.classList.remove("custom-icon");
     const idClass = `icon-${item.id}_${item.Damage}` + " " + (item.Damage != 0 ? `icon-${item.id}_0` : "");
-    itemIcon.className = "stats-piece-icon item-icon " + idClass;
+    itemIcon.className = ("stats-piece-icon item-icon " + idClass).trim();
   } else {
     throw new Error("item mush have either an id and a damage or a texture_path");
   }
@@ -334,12 +342,12 @@ function fillLore(element: HTMLElement) {
   }
 }
 
-function showLore(element: HTMLElement, _resize?: boolean) {
+function showLore(element: HTMLElement, shouldResize = true) {
   statsContent.classList.add("sticky-stats");
   element.classList.add("sticky-stats");
   dimmer.classList.add("show-dimmer");
 
-  if (_resize != false) {
+  if (shouldResize) {
     resize();
   }
 }
@@ -413,118 +421,6 @@ document.querySelectorAll(".extender").forEach((element) => {
   );
 });
 
-function flashForUpdate(element: HTMLElement) {
-  element.classList.add("updated");
-  element.addEventListener("animationend", () => {
-    element.classList.remove("updated");
-  });
-}
-
-for (const element of document.querySelectorAll<HTMLElement>(".stat-weapons .select-weapon")) {
-  const parent = element.parentElement as HTMLElement;
-  const itemId = parent.getAttribute("data-item-id") as string;
-
-  const item = allItems.get(itemId) as Item;
-
-  const weaponStats = calculated.weapon_stats[itemId];
-  let stats;
-
-  element.addEventListener("mousedown", (event) => {
-    event.preventDefault();
-  });
-
-  const activeWeaponElement = document.querySelector(".stat-active-weapon") as HTMLElement;
-
-  element.addEventListener("click", (event) => {
-    event.stopPropagation();
-
-    if (parent.classList.contains("piece-selected")) {
-      parent.classList.remove("piece-selected");
-
-      stats = calculated.stats;
-
-      activeWeaponElement.className = "stat-value stat-active-weapon piece-common-fg";
-      activeWeaponElement.innerHTML = "None";
-    } else {
-      for (const _element of document.querySelectorAll(".stat-weapons .piece")) {
-        _element.classList.remove("piece-selected");
-      }
-
-      parent.classList.add("piece-selected");
-
-      activeWeaponElement.className = "stat-value stat-active-weapon piece-" + item.rarity + "-fg";
-      activeWeaponElement.innerHTML = item.display_name;
-
-      stats = weaponStats;
-    }
-
-    flashForUpdate(activeWeaponElement);
-
-    for (const stat in stats) {
-      if (stat != "sea_creature_chance") {
-        updateStat(stat as StatName, stats[stat as StatName]);
-      }
-    }
-  });
-}
-
-for (const element of document.querySelectorAll<HTMLElement>(".stat-fishing .select-rod")) {
-  const parent = element.parentElement as HTMLElement;
-  const itemId = parent.getAttribute("data-item-id") as string;
-
-  const item = allItems.get(itemId) as Item;
-
-  const weaponStats = calculated.weapon_stats[itemId];
-  let stats;
-
-  element.addEventListener("mousedown", (event) => {
-    event.preventDefault();
-  });
-
-  const activeRodElement = document.querySelector(".stat-active-rod") as HTMLElement;
-
-  element.addEventListener("click", (event) => {
-    event.stopPropagation();
-
-    if (parent.classList.contains("piece-selected")) {
-      parent.classList.remove("piece-selected");
-
-      stats = calculated.stats;
-
-      activeRodElement.className = "stat-value stat-active-rod piece-common-fg";
-      activeRodElement.innerHTML = "None";
-    } else {
-      for (const _element of document.querySelectorAll(".stat-fishing .piece")) {
-        _element.classList.remove("piece-selected");
-      }
-
-      parent.classList.add("piece-selected");
-
-      activeRodElement.className = "stat-value stat-active-rod piece-" + item.rarity + "-fg";
-      activeRodElement.innerHTML = item.display_name;
-
-      stats = weaponStats;
-    }
-
-    flashForUpdate(activeRodElement);
-
-    updateStat("sea_creature_chance", stats.sea_creature_chance);
-  });
-}
-
-function updateStat(stat: StatName, newValue: number) {
-  const elements = document.querySelectorAll<HTMLElement>(".basic-stat[data-stat=" + stat + "] .stat-value");
-
-  for (const element of elements) {
-    const currentValue = parseFloat(element.innerHTML.replaceAll(",", ""));
-
-    if (newValue != currentValue) {
-      element.innerHTML = newValue.toLocaleString();
-      flashForUpdate(element);
-    }
-  }
-}
-
 for (const element of document.querySelectorAll(".inventory-tab")) {
   const type = element.getAttribute("data-inventory-type") as string;
 
@@ -547,8 +443,8 @@ for (const element of document.querySelectorAll(".inventory-tab")) {
 
 const statsContent = document.querySelector("#stats_content") as HTMLElement;
 const itemName = statsContent.querySelector(".item-name") as HTMLElement;
-const itemIcon = itemName.querySelector("div:first-child") as HTMLDivElement;
-const itemNameContent = itemName.querySelector("span") as HTMLSpanElement;
+const itemIcon = itemName.querySelector(".stats-piece-icon") as HTMLDivElement;
+const itemNameContent = itemName.querySelector(".item-name__name") as HTMLSpanElement;
 const itemLore = statsContent.querySelector(".item-lore") as HTMLElement;
 const backpackContents = statsContent.querySelector(".backpack-contents") as HTMLElement;
 
@@ -688,8 +584,8 @@ favoriteElement.addEventListener("click", () => {
       cookieArray.splice(cookieArray.indexOf(uuid), 1);
 
       favoriteNotification.setContent("Removed favorite!");
-    } else if (cookieArray.length >= constants.max_favorites) {
-      favoriteNotification.setContent(`You can only have ${constants.max_favorites} favorites!`);
+    } else if (cookieArray.length >= constants.MAX_FAVORITES) {
+      favoriteNotification.setContent(`You can only have ${constants.MAX_FAVORITES} favorites!`);
     } else {
       cookieArray.push(uuid);
 
@@ -747,7 +643,7 @@ class ScrollMemory {
     });
   }
 
-  /** wether the document currently has a smooth scroll taking place */
+  /** whether the document currently has a smooth scroll taking place */
   get isSmoothScrolling() {
     return this._isSmoothScrolling || !this._loaded;
   }
@@ -965,4 +861,77 @@ export function formatNumber(number: number, floor: boolean, rounding = 10): str
       "B"
     );
   }
+}
+
+// Player stats
+{
+  const stats = getPlayerStats();
+
+  // Print the player stats
+  const parent = document.querySelector("#base_stats_container");
+
+  for (const stat in stats) {
+    // Wrapping the player-stat node inside a div is required to fix Chromium v102 css columns bug
+    const nodeWrapper = document.createElement("div");
+    const node = document.createElement("player-stat");
+
+    node.setAttribute("stat", stat);
+    node.setAttribute(
+      "value",
+      Object.values(stats[stat])
+        .reduce((a, b) => a + b, 0)
+        .toString()
+    );
+
+    node.data = stats[stat];
+
+    // Special additions for some stats
+    const totalHealth = Object.values(stats.health).reduce((a, b) => a + b, 0);
+    const totalDefense = Object.values(stats.defense).reduce((a, b) => a + b, 0);
+    const totalTrueDefense = Object.values(stats.true_defense).reduce((a, b) => a + b, 0);
+
+    switch (stat) {
+      case "defense":
+        node.special = {
+          "Damage Reduction": `${Math.round((totalDefense / (totalDefense + 100)) * 100)}%`,
+          "Effective Health": `${Math.round(totalHealth * (1 + totalDefense / 100)).toLocaleString()}`,
+        };
+        break;
+
+      case "true_defense":
+        node.special = {
+          "True Damage Reduction": `${Math.round((totalTrueDefense / (totalTrueDefense + 100)) * 100)}%`,
+        };
+        break;
+    }
+
+    nodeWrapper.appendChild(node);
+    parent?.appendChild(nodeWrapper);
+  }
+
+  // Print bonus stats
+  document.querySelectorAll("[data-bonus-stats]").forEach((element) => {
+    const targetraw = (element as HTMLElement).dataset.bonusStats;
+
+    if (!targetraw) {
+      return;
+    }
+
+    const targets = targetraw.split(",");
+    const bonusStats: { [key: string]: number } = {};
+
+    for (const stat in stats) {
+      for (const target of targets) {
+        if (Object.keys(stats[stat]).includes(target)) {
+          bonusStats[stat] ??= 0;
+          bonusStats[stat] += stats[stat][target];
+        }
+      }
+    }
+
+    const node = document.createElement("bonus-stats");
+    node.data = bonusStats;
+
+    element.appendChild(node);
+  });
 }

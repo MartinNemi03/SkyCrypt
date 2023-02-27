@@ -27,12 +27,6 @@ jspm_packages/
 # TypeScript v1 declaration files
 typings/
 
-# Optional npm cache directory
-.npm
-
-# Output of 'npm pack'
-*.tgz
-
 # Yarn Integrity file
 .yarn-integrity
 
@@ -65,5 +59,11 @@ public/resources/css/**
 # compiled ts
 public/resources/js/**
 
+# processed profiler logs
+profiler
+
 Caretaker/checkstat.sh
 package-lock.json
+
+# local dev files
+devdata/*

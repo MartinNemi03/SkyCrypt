@@ -1,4 +1,4 @@
-export const special_sets = [
+export const SPECIAL_SETS = [
   {
     pieces: ["SKELETON_HELMET", "GUARDIAN_CHESTPLATE", "CREEPER_LEGGINGS", "SPIDER_BOOTS"],
     name: "Monster Hunter Armor",
@@ -30,5 +30,9 @@ export const special_sets = [
   {
     pieces: ["ADAPTIVE_HELMET", "ADAPTIVE_CHESTPLATE", "ADAPTIVE_LEGGINGS", "ADAPTIVE_BOOTS"],
     name: "Adaptive Armor",
+  },
+  {
+    pieces: ["TAURUS_HELMET", "FLAMING_CHESTPLATE", "MOOGMA_LEGGINGS", "SLUG_BOOTS"],
+    name: "Lava Sea Creature Armor",
   },
 ];

@@ -1,20 +1,20 @@
 import typescript from "@rollup/plugin-typescript";
 import resolve from "@rollup/plugin-node-resolve";
 import commonjs from "@rollup/plugin-commonjs";
-import { terser } from "rollup-plugin-terser";
+import terser from "@rollup/plugin-terser";
 import minifyHTML from "rollup-plugin-minify-html-literals";
 import nameMap from "./lib/rollup-plugin-name-map.js";
 import del from "rollup-plugin-delete";
 import replace from "@rollup/plugin-replace";
 
-// `npm run start` -> `production` is true
-// `npm run dev` -> `production` is false
+// `pnpm start` -> `production` is true
+// `pnpm dev` -> `production` is false
 const production = !process.env.ROLLUP_WATCH;
 
 /**
  * @type {import('rollup').RollupOptions}
  */
-const config = {
+const CONFIG = {
   input: [
     "public/resources/ts/browser-compat-check.ts",
     "public/resources/ts/common-defer.ts",
@@ -25,6 +25,8 @@ const config = {
     "public/resources/ts/elements/local-time.ts",
     "public/resources/ts/elements/rich-item.ts",
     "public/resources/ts/elements/skill-component.ts",
+    "public/resources/ts/elements/player-stat.ts",
+    "public/resources/ts/elements/bonus-stats.ts",
   ],
   output: {
     dir: "public/resources/js",
@@ -41,7 +43,7 @@ const config = {
     commonjs(), // converts Node modules to ES modules
     production && terser(), // minify, but only in production
     production && // minify html strings inside javascript (aka lit-html)
-      minifyHTML({
+      minifyHTML.default({
         options: {
           minifyOptions: {
             conservativeCollapse: true,
@@ -52,4 +54,4 @@ const config = {
   ],
 };
 
-export default config;
+export default CONFIG;

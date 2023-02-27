@@ -1,4 +1,4 @@
-export const typeToCategories = {
+export const TYPE_TO_CATEGORIES = {
   helmet: ["armor", "helmet"],
   chestplate: ["armor", "chestplate"],
   leggings: ["armor", "leggings"],
@@ -21,44 +21,15 @@ export const typeToCategories = {
   item: ["item"],
   accessory: ["accessory"],
   arrow: ["arrow"],
-  "reforge stone": ["reforge stone"],
+  "reforge stone": ["reforge_stone"],
   cosmetic: ["cosmetic"],
-  "pet item": ["pet item"],
-  "travel scroll": ["travel scroll"],
+  "pet item": ["pet_item"],
+  "travel scroll": ["travel_scroll"],
   belt: ["belt"],
   cloak: ["cloak"],
   necklace: ["necklace"],
   gloves: ["gloves"],
-};
-
-/** @typedef {"common"|"uncommon"|"rare"|"epic"|"legendary"|"mythic"|"divine"|"supreme"|"special"|"very_special"} Rarity */
-
-/** @type {Rarity[]} */
-export const rarities = [
-  "common",
-  "uncommon",
-  "rare",
-  "epic",
-  "legendary",
-  "mythic",
-  "divine",
-  "supreme",
-  "special",
-  "very_special",
-];
-
-/** @typedef {"0"|"1"|"2"|"3"|"4"|"5"|"6"|"7"|"8"|"9"|"a"|"b"|"c"|"d"|"e"|"f"} ColorCode */
-
-/** @type {{[key:Rarity]:ColorCode}} */
-export const rarityColors = {
-  common: "f",
-  uncommon: "a",
-  rare: "9",
-  epic: "5",
-  legendary: "6",
-  mythic: "d",
-  divine: "b",
-  supreme: "4",
-  special: "c",
-  very_special: "c",
+  bracelet: ["bracelet"],
+  deployable: ["deployable"],
+  "trophy fish": ["trophy_fish"],
 };

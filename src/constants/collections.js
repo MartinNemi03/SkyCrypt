@@ -1,6 +1,6 @@
-export const collection_types = ["farming", "mining", "combat", "foraging", "fishing"];
+export const COLLECTION_TYPES = ["farming", "mining", "combat", "foraging", "fishing"];
 
-export const collection_data = [
+export const COLLECTION_DATA = [
   {
     type: "farming",
     skyblockId: "WHEAT",
@@ -220,6 +220,14 @@ export const collection_data = [
   },
   {
     type: "mining",
+    skyblockId: "SAND:1",
+    name: "Red Sand",
+    id: 12,
+    damage: 1,
+    maxTier: 8,
+  },
+  {
+    type: "mining",
     skyblockId: "GLOWSTONE_DUST",
     name: "Glowstone",
     id: 348,
@@ -276,6 +284,14 @@ export const collection_data = [
   },
   {
     type: "mining",
+    skyblockId: "MYCEL",
+    name: "Mycelium",
+    id: 110,
+    damage: 0,
+    maxTier: 10,
+  },
+  {
+    type: "mining",
     skyblockId: "HARD_STONE",
     name: "Hard Stone",
     id: 1,
@@ -288,6 +304,14 @@ export const collection_data = [
     name: "Gemstone",
     texture: "aac15f6fcf2ce963ef4ca71f1a8685adb97eb769e1d11194cbbd2e964a88978c",
     maxTier: 11,
+  },
+  {
+    type: "mining",
+    skyblockId: "SULPHUR_ORE",
+    name: "Sulphur",
+    id: 348,
+    damage: 0,
+    maxTier: 9,
   },
   {
     type: "combat",
@@ -367,6 +391,13 @@ export const collection_data = [
     name: "Magma Cream",
     id: 378,
     damage: 0,
+    maxTier: 9,
+  },
+  {
+    type: "combat",
+    skyblockId: "CHILI_PEPPER",
+    name: "Chili Pepper",
+    texture: "f859c8df1109c08a756275f1d2887c2748049fe33877769a7b415d56eda469d8",
     maxTier: 9,
   },
 
@@ -498,5 +529,12 @@ export const collection_data = [
     id: 19,
     damage: 0,
     maxTier: 9,
+  },
+  {
+    type: "fishing",
+    skyblockId: "MAGMA_FISH",
+    name: "Magmafish",
+    texture: "f56b5955b295522c9689481960c01a992ca1c7754cf4ee313c8dd0c356d335f",
+    maxTier: 12,
   },
 ];

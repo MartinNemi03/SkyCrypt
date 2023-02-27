@@ -15,7 +15,6 @@ import "axios-debug-log";
 import fs from "fs-extra";
 
 import path from "path";
-import { fileURLToPath } from "url";
 import * as renderer from "./renderer.js";
 
 import credentials from "./credentials.js";
@@ -29,23 +28,26 @@ import { mongo, db } from "./mongo.js";
 import sanitize from "mongo-sanitize";
 import * as helper from "./helper.js";
 import * as constants from "./constants.js";
+import * as custom_resources from "./custom-resources.js";
 import { SitemapStream, streamToPromise } from "sitemap";
 import { createGzip } from "zlib";
 import twemoji from "twemoji";
 import cookieParser from "cookie-parser";
+import { execSync } from "child_process";
 
-import api from "./api.js";
-import apiv2 from "./apiv2.js";
+import * as api from "./routes/api.js";
+import * as apiv2 from "./routes/apiv2.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const folderPath = helper.getFolderPath();
 
-const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../public/manifest.json")));
+const manifest = JSON.parse(fs.readFileSync(path.join(folderPath, "../public/manifest.json")));
 
 await renderer.init();
+await custom_resources.init();
 
 const fileHashes = await getFileHashes();
 
-const fileNameMapFileName = path.join(__dirname, "../public/resources/js/file-name-map.json");
+const fileNameMapFileName = path.join(folderPath, "../public/resources/js/file-name-map.json");
 
 while (!fs.existsSync(fileNameMapFileName)) {
   console.log(`waiting for: "${fileNameMapFileName}" make sure you ran rollup`);
@@ -95,7 +97,7 @@ const cacheMaxAge = 30 * 24 * 60 * 60; // 30 days should be cached for
  */
 const volatileCacheMaxAge = 12 * 60 * 60; // 12 hours
 
-const cachePath = path.resolve(__dirname, "../cache");
+const cachePath = helper.getCacheFolderPath(folderPath);
 await fs.ensureDir(cachePath);
 
 if (credentials.hypixel_api_key.length == 0) {
@@ -131,6 +133,21 @@ async function updateCacheOnly() {
 updateCacheOnly();
 setInterval(updateCacheOnly, 60_000 * 5);
 
+function updateCommitHash() {
+  return execSync("git rev-parse HEAD", { cwd: path.resolve(folderPath, "../") })
+    .toString()
+    .trim()
+    .slice(0, 10);
+}
+const commitHash = updateCommitHash();
+
+const featuredProfiles = fs.readJSONSync(helper.getCacheFilePath(cachePath, "json", "featured-profiles", "json"));
+
+// Wait for APIs to be ready..
+// Maybe these awaits are done wrong or just unnecessary, idk.. -Martin
+await apiv2.init();
+await api.init();
+
 const app = express();
 const port = process.env.SKYCRYPT_PORT ?? 32464;
 
@@ -156,15 +173,12 @@ app.use(
   })
 );
 
-api(app, db);
-apiv2(app, db);
-
 function parseFavorites(cookie) {
   return cookie?.split(",").filter((uuid) => /^[0-9a-f]{32}$/.test(uuid)) || [];
 }
 
 async function getFavoritesFormUUIDs(uuids) {
-  let favorites = [];
+  const favorites = [];
   for (let uuid of uuids) {
     if (uuid == null) continue;
     uuid = sanitize(uuid);
@@ -175,27 +189,27 @@ async function getFavoritesFormUUIDs(uuids) {
       favorites.push(cache[0]);
       continue;
     } else {
-      let output_cache = { uuid };
+      let outputCache = { uuid };
 
       const user = await db.collection("usernames").find({ uuid }).toArray();
 
       if (user[0]) {
-        output_cache = user[0];
+        outputCache = user[0];
 
-        let profiles = await db.collection("profileStore").find({ uuid }).toArray();
+        const profiles = await db.collection("profileStore").find({ uuid }).toArray();
 
         if (profiles[0]) {
           const profile = profiles[0];
-          output_cache.last_updated = profile.last_save;
+          outputCache.last_updated = profile.last_save;
         } else {
-          output_cache.error = "Profile doesn't exist.";
+          outputCache.error = "Profile doesn't exist.";
         }
       } else {
-        output_cache.error = "User doesn't exist.";
+        outputCache.error = "User doesn't exist.";
       }
 
-      await db.collection("favoriteCache").insertOne(output_cache);
-      favorites.push(output_cache);
+      await db.collection("favoriteCache").insertOne(outputCache);
+      favorites.push(outputCache);
     }
   }
   return favorites;
@@ -206,22 +220,22 @@ async function getExtra(page = null, favoriteUUIDs = [], cacheOnly) {
 
   output.twemoji = twemoji;
 
-  output.packs = lib.getPacks();
+  output.packs = custom_resources.getPacks();
 
   output.isFoolsDay = isFoolsDay;
   output.cacheOnly = cacheOnly;
+  output.commit_hash = commitHash;
 
   if (page === "index") {
     output.favorites = await getFavoritesFormUUIDs(favoriteUUIDs);
-
-    output.devs = await db.collection("featuredProfiles").find().sort({ position: 1 }).toArray();
+    output.featured = featuredProfiles;
   }
 
   return output;
 }
 
 function weightedRandom(array) {
-  let weights = [];
+  const weights = [];
 
   for (let i = 0; i < array.length; i++) weights[i] = array[i].weight + (weights[i - 1] || 0);
 
@@ -232,15 +246,15 @@ function weightedRandom(array) {
 
 app.all("/stats/:player/:profile?", async (req, res, next) => {
   const debugId = helper.generateDebugId("stats");
-  const timeStarted = new Date().getTime();
+  const timeStarted = Date.now();
 
   console.debug(`${debugId}: stats page was called.`);
 
-  let paramPlayer = req.params.player
+  const paramPlayer = req.params.player
     .toLowerCase()
     .replaceAll(/[ +]/g, "_")
     .replaceAll(/[^a-z\d\-_:]/g, "");
-  let paramProfile = req.params.profile ? req.params.profile.toLowerCase() : null;
+  const paramProfile = req.params.profile ? req.params.profile.toLowerCase() : null;
 
   const cacheOnly = req.query.cache === "true" || forceCacheOnly;
 
@@ -263,7 +277,7 @@ app.all("/stats/:player/:profile?", async (req, res, next) => {
     }
 
     console.debug(`${debugId}: starting page render.`);
-    const renderStart = new Date().getTime();
+    const renderStart = Date.now();
 
     if (req.cookies.pack) {
       process.send({ type: "selected_pack", id: req.cookies.pack });
@@ -285,17 +299,17 @@ app.all("/stats/:player/:profile?", async (req, res, next) => {
       },
       (err, html) => {
         if (err) console.error(err);
-        else console.debug(`${debugId}: page succesfully rendered. (${new Date().getTime() - renderStart}ms)`);
+        else console.debug(`${debugId}: page successfully rendered. (${Date.now() - renderStart}ms)`);
 
         res.set("X-Debug-ID", `${debugId}`);
-        res.set("X-Process-Time", `${new Date().getTime() - timeStarted}`);
+        res.set("X-Process-Time", `${Date.now() - timeStarted}`);
         res.send(html);
       }
     );
   } catch (e) {
     const favorites = parseFavorites(req.cookies.favorite);
 
-    console.debug(`${debugId}: an error has occured.`);
+    console.debug(`${debugId}: an error has occurred.`);
     console.error(e);
 
     res.render(
@@ -305,7 +319,7 @@ app.all("/stats/:player/:profile?", async (req, res, next) => {
         error: e,
         player: playerUsername,
         extra: await getExtra("index", favorites, cacheOnly),
-        promotion: weightedRandom(constants.promotions),
+        promotion: weightedRandom(constants.PROMOTIONS),
         fileHashes,
         fileNameMap,
         helper,
@@ -313,7 +327,7 @@ app.all("/stats/:player/:profile?", async (req, res, next) => {
       },
       (err, html) => {
         res.set("X-Debug-ID", `${debugId}`);
-        res.set("X-Process-Time", `${new Date().getTime() - timeStarted}`);
+        res.set("X-Process-Time", `${Date.now() - timeStarted}`);
         res.send(html);
       }
     );
@@ -322,21 +336,35 @@ app.all("/stats/:player/:profile?", async (req, res, next) => {
   }
 });
 
+app.all("/api", async (req, res, next) => {
+  res.render(
+    "api",
+    { error: null, player: null, extra: await getExtra("api"), fileHashes, fileNameMap, helper, page: "api" },
+    (err, html) => {
+      res.set("X-Cluster-ID", `${helper.getClusterId()}`);
+      res.send(html);
+    }
+  );
+});
+
+app.use("/api/v2", apiv2.router);
+app.use("/api", api.router);
+
 app.all("/texture/:uuid", cors(), async (req, res) => {
   const { uuid } = req.params;
 
-  const filename = `texture_${uuid}.png`;
+  const filePath = helper.getCacheFilePath(cachePath, "texture", uuid);
   res.set("X-Cluster-ID", `${helper.getClusterId()}`);
 
   let file;
 
   try {
-    file = await fs.readFile(path.resolve(cachePath, filename));
+    file = await fs.readFile(filePath);
   } catch (e) {
     try {
       file = (await axios.get(`https://textures.minecraft.net/texture/${uuid}`, { responseType: "arraybuffer" })).data;
 
-      fs.writeFile(path.resolve(cachePath, filename), file, (err) => {
+      fs.writeFile(filePath, file, (err) => {
         if (err) {
           console.error(err);
         }
@@ -365,13 +393,13 @@ app.all("/cape/:username", cors(), async (req, res) => {
     return;
   }
 
-  const filename = path.resolve(cachePath, `cape_${username}.png`);
+  const filePath = helper.getCacheFilePath(cachePath, "cape", username);
 
   let file;
 
   try {
     // try to use file from disk
-    const fileStats = await fs.stat(filename);
+    const fileStats = await fs.stat(filePath);
 
     const optifineCape = await axios.head(`https://optifine.net/capes/${username}.png`);
     const lastUpdated = moment(optifineCape.headers["last-modified"]);
@@ -379,14 +407,14 @@ app.all("/cape/:username", cors(), async (req, res) => {
     if (lastUpdated.unix() > fileStats.mtime) {
       throw new Error("optifine cape changed");
     } else {
-      file = await fs.readFile(filename);
+      file = await fs.readFile(filePath);
     }
   } catch (e) {
     // file on disk could not be used so try to get from network
     try {
       file = (await axios.get(`https://optifine.net/capes/${username}.png`, { responseType: "arraybuffer" })).data;
 
-      fs.writeFile(filename, file, (err) => {
+      fs.writeFile(filePath, file, (err) => {
         if (err) {
           console.error(err);
         }
@@ -407,16 +435,16 @@ app.all("/cape/:username", cors(), async (req, res) => {
 app.all("/head/:uuid", cors(), async (req, res) => {
   const { uuid } = req.params;
 
-  const filename = `head_${uuid}.png`;
+  const filePath = helper.getCacheFilePath(cachePath, "head", uuid);
 
   let file;
 
   try {
-    file = await fs.readFile(path.resolve(cachePath, filename));
+    file = await fs.readFile(filePath);
   } catch (e) {
     file = await renderer.renderHead(`http://textures.minecraft.net/texture/${uuid}`, 6.4);
 
-    fs.writeFile(path.resolve(cachePath, filename), file, (err) => {
+    fs.writeFile(filePath, file, (err) => {
       if (err) {
         console.error(err);
       }
@@ -468,16 +496,15 @@ app.all("/leather/:type/:color", cors(), async (req, res) => {
     return;
   }
 
-  const filename = `leather_${type}_${color}.png`;
-
+  const filePath = helper.getCacheFilePath(cachePath, `leather`, `${type}_${color}`);
   let file;
 
   try {
-    file = await fs.readFile(path.resolve(cachePath, filename));
+    file = await fs.readFile(filePath);
   } catch (e) {
     file = await renderer.renderArmor(type, color);
 
-    fs.writeFile(path.resolve(cachePath, filename), file, (err) => {
+    fs.writeFile(filePath, file, (err) => {
       if (err) {
         console.error(err);
       }
@@ -506,16 +533,15 @@ app.all("/potion/:type/:color", cors(), async (req, res) => {
     return;
   }
 
-  const filename = `potion_${type}_${color}.png`;
-
+  const filePath = helper.getCacheFilePath(cachePath, `potion`, `${type}_${color}`);
   let file;
 
   try {
-    file = await fs.readFile(path.resolve(cachePath, filename));
+    file = await fs.readFile(filePath);
   } catch (e) {
     file = await renderer.renderPotion(type, color);
 
-    fs.writeFile(path.resolve(cachePath, filename), file, (err) => {
+    fs.writeFile(filePath, file, (err) => {
       if (err) {
         console.error(err);
       }
@@ -620,23 +646,12 @@ app.all("/manifest.webmanifest", async (req, res) => {
   res.json(Object.assign({ shortcuts }, manifest));
 });
 
-app.all("/api", async (req, res, next) => {
-  res.render(
-    "api",
-    { error: null, player: null, extra: await getExtra("api"), fileHashes, fileNameMap, helper, page: "api" },
-    (err, html) => {
-      res.set("X-Cluster-ID", `${helper.getClusterId()}`);
-      res.send(html);
-    }
-  );
-});
-
 app.all("/:player/:profile?", async (req, res, next) => {
   res.redirect(`/stats${req.path}`);
 });
 
 app.all("/", async (req, res, next) => {
-  const timeStarted = new Date().getTime();
+  const timeStarted = Date.now();
   const favorites = parseFavorites(req.cookies.favorite);
   const cacheOnly = req.query.cache === "true" || forceCacheOnly;
 
@@ -647,7 +662,7 @@ app.all("/", async (req, res, next) => {
       error: null,
       player: null,
       extra: await getExtra("index", favorites, cacheOnly),
-      promotion: weightedRandom(constants.promotions),
+      promotion: weightedRandom(constants.PROMOTIONS),
       fileHashes,
       fileNameMap,
       helper,
@@ -655,7 +670,7 @@ app.all("/", async (req, res, next) => {
     },
     (err, html) => {
       res.set("X-Cluster-ID", `${helper.getClusterId()}`);
-      res.set("X-Process-Time", `${new Date().getTime() - timeStarted}`);
+      res.set("X-Process-Time", `${Date.now() - timeStarted}`);
       res.send(html);
     }
   );

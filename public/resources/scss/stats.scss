@@ -13,27 +13,6 @@
   -webkit-backdrop-filter: blur(16px) brightness(0.5);
   backdrop-filter: blur(16px) brightness(0.5);
 
-  @supports not ((-webkit-backdrop-filter: blur(16px)) or (backdrop-filter: blur(16px))) {
-    &::before {
-      content: "";
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      z-index: -1;
-      background: var(--bg_blur) no-repeat center center fixed;
-      background-color: rgb(20, 20, 20);
-      background-size: cover;
-    }
-    .light &::before {
-      background-color: rgb(235, 235, 235);
-    }
-    .cache-only &::before {
-      background-blend-mode: luminosity;
-    }
-  }
-
   .light & {
     -webkit-backdrop-filter: blur(16px) contrast(40%) brightness(1.5);
     backdrop-filter: blur(16px) contrast(40%) brightness(1.5);
@@ -45,7 +24,7 @@
 }
 
 #base_stats_container {
-  columns: 190px auto;
+  columns: 200px auto;
   .basic-stat {
     margin-top: 0;
   }
@@ -111,6 +90,15 @@
     &[maxed] {
       --icon-hex: var(--maxed-hex);
       --skillbar: var(--maxedbar);
+    }
+
+    &[type="skyblock_level"] {
+      margin-bottom: 25px;
+
+      @media (min-width: 481px) {
+        padding-right: 24px;
+        width: 200%;
+      }
     }
 
     .skill-icon {
@@ -288,48 +276,63 @@
     }
   }
 
-  .stats-piece-icon {
-    position: absolute;
-    left: 14px;
-    top: 50%;
-    filter: drop-shadow(2px 2px 2px rgba(0, 0, 0, 0.4));
-    transform: scale(0.25) translateY(-50%);
-    transform-origin: top left;
-  }
-
-  .close-lore {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    right: 0;
-    width: 44px;
-    background-image: url(/resources/img/icons/close.svg);
-    background-size: 24px 24px;
-    background-position: center center;
-    background-repeat: no-repeat;
-    visibility: hidden;
-    filter: drop-shadow(2px 2px 2px rgba(0, 0, 0, 0.1));
-    background-color: rgb(255 255 255 / 0%);
-    clip-path: circle(15px);
-    &:hover,
-    &:focus-visible {
-      background-color: rgb(255 255 255 / 15%);
-    }
-  }
-
   .item-name {
-    position: relative;
-    text-align: center;
-    padding: 20px;
-    padding-left: 60px;
-    text-transform: uppercase;
-    font-weight: 600;
-    color: white;
-    text-shadow: 0 0 7px rgba(0, 0, 0, 0.3);
     box-sizing: border-box;
+    padding: 20px;
+    display: flex;
+    flex-flow: row nowrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 16px;
+    .stats-piece-icon__wrapper {
+      width: 32px;
+      height: 32px;
+      overflow: hidden;
+      flex: none;
+      .stats-piece-icon {
+        filter: drop-shadow(2px 2px 2px rgba(0, 0, 0, 0.4));
+        width: 128px;
+        height: 128px;
+        transform: scale(0.25);
+        transform-origin: top left;
+      }
+    }
 
-    :where(&) {
-      background-color: var(--header-hex); // fallback for rarity color
+    .item-name__name {
+      position: relative;
+      text-align: center;
+      text-transform: uppercase;
+      font-weight: 600;
+      color: white;
+      text-shadow: 0 0 7px rgba(0, 0, 0, 0.3);
+      margin: 0;
+      flex: 1;
+      &[data-multicolor="true"] {
+        background-color: var(--lore_background-hex);
+        border-radius: 1rem;
+        padding: 4px 10px;
+        --§9: #929292;
+        --§8: #929292;
+        --§0: #929292;
+      }
+    }
+
+    .close-lore {
+      flex: none;
+      display: none;
+      width: 44px;
+      height: 44px;
+      background-image: url(/resources/img/icons/close.svg);
+      background-size: 24px 24px;
+      background-position: center center;
+      background-repeat: no-repeat;
+      filter: drop-shadow(2px 2px 2px rgba(0, 0, 0, 0.1));
+      background-color: rgb(255 255 255 / 0%);
+      clip-path: circle(15px);
+      &:hover,
+      &:focus-visible {
+        background-color: rgb(255 255 255 / 15%);
+      }
     }
   }
 
@@ -577,6 +580,10 @@
   &:hover::after {
     color: rgba(255, 255, 255, 0.9);
   }
+}
+
+button.additional-player-stat {
+  cursor: pointer;
 }
 
 #reveal_socials {
@@ -954,6 +961,11 @@ a.additional-player-stat:hover {
   color: var(--§5);
 }
 
+.stat-true-defense,
+.color-true-defense {
+  color: var(--§f);
+}
+
 .stat-container {
   margin-top: 35px;
   position: relative;
@@ -1158,6 +1170,7 @@ a.additional-player-stat:hover {
 }
 
 .rich-item {
+  cursor: pointer;
   @media (hover: hover) {
     &::after {
       content: "";
@@ -1197,35 +1210,6 @@ a.additional-player-stat:hover {
   margin-bottom: -10px;
 }
 
-.stat-weapons .piece,
-.stat-fishing .piece {
-  margin-bottom: 50px;
-  content-visibility: visible;
-}
-
-.piece .select-weapon,
-.piece .select-rod {
-  top: calc(100% + 15px);
-  position: absolute;
-  left: 50%;
-  margin-left: -11px;
-  width: 22px;
-  height: 22px;
-  border: 3px solid var(--text-hex);
-  border-radius: 3px;
-  box-sizing: border-box;
-  transition: background-color 0.2s;
-
-  &:hover {
-    background-color: rgba(var(--text-rgb), 0.1);
-  }
-}
-
-.piece-selected .select-weapon,
-.piece-selected .select-rod {
-  background-color: var(--text-hex) !important;
-}
-
 @keyframes flash {
   from {
     background-color: rgb(255, 255, 255, 1);
@@ -1249,6 +1233,7 @@ a.additional-player-stat:hover {
   left: 0;
   bottom: 0;
   right: 0;
+  pointer-events: none;
   overflow: hidden;
   @supports (contain: paint) {
     overflow: initial;
@@ -1548,7 +1533,7 @@ a.additional-player-stat:hover {
 }
 
 .missing-pet,
-.missing-talisman {
+.missing-accessory {
   filter: grayscale(0.8);
   transition: filter 0.2s;
 
@@ -1890,7 +1875,7 @@ inventory-view {
 }
 
 .slayer-bar {
-  --overhang: 0;
+  --overhang: 0px;
   position: absolute;
   bottom: 0;
   left: 0;
@@ -2512,7 +2497,6 @@ inventory-view {
 
   #skill_levels_container skill-component {
     width: 100%;
-    margin: 0;
   }
 
   .wardrobe .wardrobe-set {
@@ -2539,12 +2523,11 @@ inventory-view {
     min-width: unset;
     max-width: unset;
     width: calc(100vw - 30px);
-    .close-lore {
-      visibility: visible;
-    }
 
     .item-name {
-      padding-right: 60px;
+      .close-lore {
+        display: block;
+      }
     }
   }
 
@@ -2572,5 +2555,36 @@ inventory-view {
 @media (max-width: 350px) {
   .piece-icon {
     transform: translate(-50%, -50%) scale(0.35);
+  }
+}
+
+bonus-stats {
+  .bonus-stat {
+    margin: 0 2px;
+  }
+}
+
+.accessories-extras {
+  margin: 16px 0;
+  bonus-stats p {
+    margin: 0;
+  }
+}
+
+#techno-support {
+  text-align: center;
+  padding: 20px;
+  margin-left: calc(-1 * var(--padding));
+  margin-right: calc(-1 * var(--padding));
+  background-color: rgba(var(--background-rgb), 0.6);
+
+  .support-title {
+    font-size: 20px;
+    font-weight: bold;
+  }
+
+  .support-text {
+    margin: 0;
+    padding-top: 16px;
   }
 }
