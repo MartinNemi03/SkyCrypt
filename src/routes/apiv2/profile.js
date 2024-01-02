@@ -3,6 +3,7 @@ import * as lib from "../../lib.js";
 import express from "express";
 
 import { db } from "../../mongo.js";
+import { getItems } from "../../stats.js";
 
 const router = express.Router();
 
@@ -14,14 +15,15 @@ router.use((req, res, next) => {
 router.get("/:player", async (req, res, next) => {
   try {
     const { profile, allProfiles } = await lib.getProfile(db, req.params.player, null, req.options);
+    const bingoProfile = await lib.getBingoProfile(db, req.params.player, req.options);
 
     const output = { profiles: {} };
 
     for (const singleProfile of allProfiles) {
       const userProfile = singleProfile.members[profile.uuid];
 
-      const items = await lib.getItems(userProfile, false, "", req.options);
-      const data = await lib.getStats(db, singleProfile, allProfiles, items, req.options);
+      const items = await getItems(userProfile, bingoProfile, false, "", req.options);
+      const data = await lib.getStats(db, singleProfile, bingoProfile, allProfiles, items, req.options);
 
       output.profiles[singleProfile.profile_id] = {
         profile_id: singleProfile.profile_id,

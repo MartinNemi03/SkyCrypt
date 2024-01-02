@@ -547,6 +547,10 @@
     color: rgba(var(--text-rgb), 0.8);
     line-height: normal;
   }
+
+  .kicked {
+    text-decoration: line-through;
+  }
 }
 
 #additional_player_stats {
@@ -878,19 +882,23 @@ a.additional-player-stat:hover {
   }
 }
 
-.stat-health,
-.stat-strength,
-.stat-ferocity,
-.stat-ability-damage,
-.color-health,
-.color-strength,
+.color-ability-damage,
 .color-ferocity,
-.color-ability-damage {
+.color-health,
+.color-health-regen,
+.color-strength,
+.stat-ability-damage,
+.stat-ferocity,
+.stat-health,
+.stat-health-regen,
+.stat-strength {
   color: var(--§c);
 }
 
 .stat-defense,
-.color-defense {
+.stat-mending,
+.color-defense,
+.color-mending {
   color: var(--§a);
 }
 
@@ -916,16 +924,37 @@ a.additional-player-stat:hover {
   color: var(--§b);
 }
 
+.stat-alchemy-wisdom,
+.color-alchemy-wisdom,
+.stat-carpentry-wisdom,
+.color-carpentry-wisdom,
+.stat-combat-wisdom,
+.color-combat-wisdom,
+.stat-enchanting-wisdom,
+.color-carpentry-wisdom,
+.stat-farming-wisdom,
+.color-farming-wisdom,
+.stat-fishing-wisdom,
+.color-fishing-wisdom,
+.stat-foraging-wisdom,
+.color-foraging-wisdom,
+.stat-mining-wisdom,
+.color-mining-wisdom,
+.stat-runecrafting-wisdom,
+.color-runecrafting-wisdom,
 .stat-sea-creature-chance,
-.color-sea-creature-chance {
+.color-sea-creature-chance,
+.stat-social-wisdom,
+.color-social-wisdom {
   color: var(--§3);
 }
 
 .stat-magic-find,
-.color-magic-find {
+.color-magic-find,
+.stat-fishing-speed,
+.color-fishing-speed {
   color: var(--§b);
 }
-
 .stat-pet-luck,
 .color-pet-luck {
   color: var(--§d);
@@ -964,6 +993,11 @@ a.additional-player-stat:hover {
 .stat-true-defense,
 .color-true-defense {
   color: var(--§f);
+}
+
+.stat-vitality,
+.color-vitality {
+  color: var(--§4);
 }
 
 .stat-container {
@@ -1308,6 +1342,17 @@ a.additional-player-stat:hover {
   -webkit-mask-position: center center;
 }
 
+.piece-admin-bg,
+.style-scrollbar .piece-admin-bg + .item-lore::-webkit-scrollbar-thumb {
+  background-color: var(--§4);
+}
+.piece-admin-bg + .item-lore {
+  scrollbar-color: var(--§4) transparent;
+}
+.piece-admin-fg {
+  color: var(--§4) !important;
+}
+
 .piece-supreme-bg,
 .style-scrollbar .piece-supreme-bg + .item-lore::-webkit-scrollbar-thumb {
   background-color: var(--§4);
@@ -1422,6 +1467,9 @@ a.additional-player-stat:hover {
   --upgraded-from: #000;
   background-image: linear-gradient(to top right, transparent 0 90%, var(--upgraded-from) 90% 100%);
 
+  &.piece-admin-bg {
+    --upgraded-from: var(--§4);
+  }
   &.piece-very_special-bg {
     --upgraded-from: var(--§c);
   }
@@ -1665,7 +1713,7 @@ a.additional-player-stat:hover {
 inventory-view {
   display: grid;
   place-content: center center;
-  --inventory-width: clamp(300px, calc(100vw - 40px), 700px);
+  --inventory-width: clamp(300px, calc(100vw - 40px), 780px);
   gap: calc(var(--inventory-width) * 0.01);
   padding: calc(var(--inventory-width) * 0.01);
   grid-template-columns: repeat(9, calc(var(--inventory-width) * 0.1));
@@ -1952,6 +2000,15 @@ inventory-view {
   margin-top: 15px;
   height: 32px;
   line-height: 32px;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .category-header {
+    -webkit-overflow-scrolling: touch;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
 }
 
 .category-header-maxed {
@@ -1993,12 +2050,15 @@ inventory-view {
 .collections,
 .minions,
 .stat-farming-crops,
-.sea-creatures {
+.sea-creatures,
+.bestiary,
+.trophy-fish {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 
-  &.sea-creatures {
+  &.sea-creatures,
+  &.trophy-fish {
     gap: 15px;
   }
 }
@@ -2017,7 +2077,7 @@ inventory-view {
 
   &[data-missing="true"] {
     filter: grayscale(1);
-    opacity: 0.75;
+    opacity: 0.5;
   }
 
   .chip-icon-wrapper {
@@ -2042,12 +2102,71 @@ inventory-view {
   }
 }
 
-.collection-name {
+.collection-name,
+.bestiary-name {
   font-size: 18px;
 }
 
-.collection-amount {
+.collection-amount,
+.bestiary-amount {
   font-size: 14px;
+}
+
+.trophy-fish-data {
+  font-size: 16px;
+  font-weight: 450;
+
+  .trophy-fish-info {
+    margin-bottom: 2px;
+
+    .trophy-fish-amount {
+      color: rgba(var(--text-rgb), 0.7);
+      font-weight: 500;
+    }
+  }
+
+  .trophy-fish-count {
+    display: grid;
+    grid-template-columns: repeat(2, auto 1fr);
+    gap: 0px 4px;
+    height: 44px;
+
+    text-align: left;
+    align-items: center;
+  }
+
+  .count-value {
+    height: 22px;
+
+    svg {
+      width: 20px;
+      height: 22px;
+    }
+  }
+
+  .count-format {
+    height: 12px;
+    width: 12px;
+    border-radius: 50%;
+  }
+
+  .bronze-count {
+    background-color: #a85c03;
+  }
+
+  .gold-count {
+    background-color: #feb801;
+  }
+
+  .silver-count {
+    background-color: #b4b4b5;
+    margin-left: 10px;
+  }
+
+  .diamond-count {
+    background-color: #68ecff;
+    margin-left: 10px;
+  }
 }
 
 .narrow-info-header {
@@ -2366,7 +2485,9 @@ inventory-view {
   .collections,
   .minions,
   .stat-farming-crops,
-  .sea-creatures {
+  .sea-creatures,
+  .bestiary,
+  .trophy-fish {
     flex-wrap: nowrap;
     overflow-x: auto;
     margin-left: calc(-1 * var(--padding));
@@ -2376,7 +2497,8 @@ inventory-view {
       contain-intrinsic-size: 200px 64px;
     }
 
-    &.sea-creatures {
+    &.sea-creatures,
+    &.trophy-fish {
       @supports (contain-intrinsic-size: 140px 230px) {
         contain-intrinsic-size: 140px 230px;
       }

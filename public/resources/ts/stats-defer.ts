@@ -1,12 +1,14 @@
-import { setCookie } from "./common-defer";
+import { getCookie, setCookie } from "./common-defer";
 import { SkinViewer, createOrbitControls } from "skinview3d";
 import tippy from "tippy.js";
 
 import { renderLore } from "../../../common/formatting.js";
 
 import { getPlayerStats } from "./calculate-player-stats";
+import { RARITY_COLORS } from "../../../common/constants.js";
 
 import("./elements/inventory-view");
+import("./elements/guild-button");
 
 const favoriteElement = document.querySelector(".favorite") as HTMLButtonElement;
 
@@ -33,21 +35,6 @@ if ("share" in navigator) {
       url: location.href.split("#")[0],
     });
   });
-}
-
-function getCookie(cookieName: string) {
-  if (document.cookie.length > 0) {
-    let cookieStart = document.cookie.indexOf(cookieName + "=");
-    if (cookieStart != -1) {
-      cookieStart = cookieStart + cookieName.length + 1;
-      let cookieEnd = document.cookie.indexOf(";", cookieStart);
-      if (cookieEnd == -1) {
-        cookieEnd = document.cookie.length;
-      }
-      return decodeURIComponent(document.cookie.substring(cookieStart, cookieEnd));
-    }
-  }
-  return "";
 }
 
 tippy("*[data-tippy-content]:not(.interactive-tooltip)", {
@@ -127,8 +114,8 @@ tippy(".interactive-tooltip", {
 
 export const ALL_ITEMS = new Map(
   [
-    items.armor,
-    items.equipment,
+    items.armor.armor,
+    items.equipment.equipment,
     items.inventory,
     items.enderchest,
     items.accessory_bag,
@@ -137,13 +124,16 @@ export const ALL_ITEMS = new Map(
     items.potion_bag,
     items.personal_vault,
     items.wardrobe_inventory,
+    items.candy_bag,
     items.storage,
     items.hotm,
+    items.bingo_card,
+    items.museum,
   ]
     .flat()
     .flatMap((item) => {
       if ("containsItems" in item) {
-        return [item, ...item.containsItems];
+        return [item, ...item.containsItems, ...item.containsItems.map((i) => i.containsItems ?? [])].flat();
       } else {
         return item;
       }
@@ -254,26 +244,32 @@ function fillLore(element: HTMLElement) {
     const itemId = element.getAttribute("data-item-id") as string;
     item = ALL_ITEMS.get(itemId) as Item;
   } else if (element.hasAttribute("data-pet-index")) {
-    item = calculated.pets[parseInt(element.getAttribute("data-pet-index") as string)];
+    item = calculated.pets.pets[parseInt(element.getAttribute("data-pet-index") as string)];
   } else if (element.hasAttribute("data-missing-pet-index")) {
-    item = calculated.missingPets[parseInt(element.getAttribute("data-missing-pet-index") as string)];
+    item = calculated.pets.missing[parseInt(element.getAttribute("data-missing-pet-index") as string)];
   } else if (element.hasAttribute("data-missing-accessory-index")) {
-    item =
-      calculated.missingAccessories.missing[parseInt(element.getAttribute("data-missing-accessory-index") as string)];
+    item = calculated.accessories.missing[parseInt(element.getAttribute("data-missing-accessory-index") as string)];
   } else if (element.hasAttribute("data-upgrade-accessory-index")) {
-    item =
-      calculated.missingAccessories.upgrades[parseInt(element.getAttribute("data-upgrade-accessory-index") as string)];
+    item = calculated.accessories.upgrades[parseInt(element.getAttribute("data-upgrade-accessory-index") as string)];
   }
 
   if (item == undefined) {
     return;
   }
 
+  const itemNameString = ((item as Item).tag?.display?.Name ?? item.display_name ?? "???") as string;
+  const colorCode = itemNameString.match(/^§([0-9a-fklmnor])/i);
+  if (colorCode && colorCode[1]) {
+    itemName.style.backgroundColor = `var(--§${colorCode[1]})`;
+  } else {
+    itemName.style.backgroundColor = `var(--§${(RARITY_COLORS as RarityColors)[item.rarity || "common"]})`;
+  }
+
   itemName.className = `item-name piece-${item.rarity || "common"}-bg nice-colors-dark`;
   const itemNameHtml = renderLore((item as Item).tag?.display?.Name ?? item.display_name ?? "???");
   const isMulticolor = (itemNameHtml.match(/<\/span>/g) || []).length > 1;
   itemNameContent.dataset.multicolor = String(isMulticolor);
-  itemNameContent.innerHTML = isMulticolor ? itemNameHtml : item.display_name ?? "???";
+  itemNameContent.innerHTML = isMulticolor ? itemNameHtml : itemNameString.replace(/§([0-9a-fklmnor])/gi, "") ?? "???";
 
   if (element.hasAttribute("data-pet-index")) {
     itemNameContent.dataset.multicolor = "false";
@@ -314,7 +310,7 @@ function fillLore(element: HTMLElement) {
     packContent.classList.add("pack-credit");
 
     const packIcon = document.createElement("img");
-    packIcon.setAttribute("src", item.texture_pack.base_path + "/pack.png");
+    packIcon.setAttribute("src", item.texture_pack.base_path.replace("public/", "") + "/pack.png");
     packIcon.classList.add("icon");
 
     const packName = document.createElement("div");
@@ -562,7 +558,7 @@ function parseFavorites(cookie: string) {
 }
 
 function checkFavorite() {
-  const favorited = parseFavorites(getCookie("favorite")).includes(
+  const favorited = parseFavorites(getCookie("favorite") ?? "").includes(
     favoriteElement.getAttribute("data-username") as string
   );
   favoriteElement.setAttribute("aria-checked", favorited.toString());
@@ -579,7 +575,7 @@ favoriteElement.addEventListener("click", () => {
   if (uuid == "0c0b857f415943248f772164bf76795c") {
     favoriteNotification.setContent("No");
   } else {
-    const cookieArray = parseFavorites(getCookie("favorite"));
+    const cookieArray = parseFavorites(getCookie("favorite") ?? "");
     if (cookieArray.includes(uuid)) {
       cookieArray.splice(cookieArray.indexOf(uuid), 1);
 
@@ -748,7 +744,8 @@ if (showStats != null) {
 
 for (const element of document.querySelectorAll(".kills-deaths-container .show-all.enabled")) {
   const parent = element.parentElement as HTMLElement;
-  const kills = calculated[element.getAttribute("data-type") as "kills" | "deaths"];
+  const type = element.getAttribute("data-type") as "kills" | "deaths";
+  const kills = type === "kills" ? calculated.kills.kills : calculated.deaths.deaths;
 
   element.addEventListener("click", () => {
     parent.style.maxHeight = parent.offsetHeight + "px";
@@ -769,7 +766,7 @@ for (const element of document.querySelectorAll(".kills-deaths-container .show-a
       statSeparator.className = "stat-separator";
 
       killRank.innerHTML = "#" + (index + 11) + "&nbsp;";
-      killEntity.innerHTML = kill.entityName;
+      killEntity.innerHTML = kill.entity_name;
       killAmount.innerHTML = kill.amount.toLocaleString();
       statSeparator.innerHTML = ":&nbsp;";
 
@@ -927,6 +924,10 @@ export function formatNumber(number: number, floor: boolean, rounding = 10): str
           bonusStats[stat] += stats[stat][target];
         }
       }
+    }
+
+    if (Object.keys(bonusStats).length === 0) {
+      return;
     }
 
     const node = document.createElement("bonus-stats");

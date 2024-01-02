@@ -640,21 +640,6 @@ class Mole extends Node {
       percent = 100;
     }
 
-    switch (blocks) {
-      case 1:
-        blocks = "1";
-        break;
-      case 2:
-        blocks = "a 2nd";
-        break;
-      case 3:
-        blocks = "a 3rd";
-        break;
-      default:
-        blocks = `a ${blocks}th`;
-        break;
-    }
-
     return [
       `§7When mining hard stone, you have a §a${percent}%§7 chance to mine §a${blocks}§7 adjacent hard stone block.`,
     ];
@@ -700,8 +685,11 @@ class GreatExplorer extends Node {
   }
 
   perk(level) {
-    const val = 20 + (level - 1) * 4;
-    return [`§7Grants §a+${val}%§7 §7chance to find treasure.`];
+    const perc = 20 + (level - 1) * 4;
+    const val = 1 + Math.floor(level / 5);
+    return [
+      `§7Boosts the chance to find treasure chests while mining in the §5Crystal Hollows §7by §a${perc}% §7and reduces the amount of locks on the chest by §a${val}§7.`,
+    ];
   }
 }
 
@@ -754,7 +742,7 @@ class GoblinKiller extends Node {
 
   perk(level) {
     return [
-      `§7Killing a §6Golden Goblin §7gives §2200 §7extra §2Mithril Powder§7, while killing other Goblins gives some based on their wits.`,
+      `§7Killing a §6Golden Goblin §7or §bDiamond Goblin §7gives §2200 §7extra §2Mithril Powder§7, while killing other Goblins gives some based on their wits.`,
     ];
   }
 }
@@ -815,7 +803,7 @@ class StarPowder extends Node {
   }
 
   perk(level) {
-    return [`§7Mining Mithril Ore near §5Fallen Crystals §7gives §a+3 §7extra Mithril Powder.`];
+    return [`§7Mining Mithril Ore near §5Fallen Crystals §7gives §a3x §7Mithril Powder.`];
   }
 }
 
@@ -839,10 +827,10 @@ class SkyMall extends Node {
       "§7Every SkyBlock day, you receive a random buff in the §2Dwarven Mines§7.",
       "",
       "§7Possible Buffs",
-      `§8 ■ §7Gain §a+100 §6${SYMBOLS.mining_speed} Mining Speed.`,
-      `§8 ■ §7Gain §a+50 §6${SYMBOLS.mining_fortune} Mining Fortune.`,
+      `§8 ■ §7Gain §a+100 §6${SYMBOLS.mining_speed} Mining Speed§7.`,
+      `§8 ■ §7Gain §a+50 §6${SYMBOLS.mining_fortune} Mining Fortune§7.`,
       "§8 ■ §7Gain §a+15% §7chance to gain extra Powder while mining.",
-      "§8 ■ §7Reduce Pickaxe Ability cooldown by §a20%",
+      "§8 ■ §7Reduce Pickaxe Ability cooldown by §a20%§7.",
       "§8 ■ §7§a10x §7chance to find Goblins while mining.",
       "§8 ■ §7Gain §a5x §9Titanium §7drops.",
     ];
@@ -955,7 +943,7 @@ class FrontLoaded extends Node {
 
   perk(level) {
     return [
-      `§7Grants §a+100 §6${SYMBOLS.mining_speed} Mining Speed §7and §6${SYMBOLS.mining_fortune} Mining Fortune §7for the first §e2,500 §7ores you mine in a day.`,
+      `§7Grants §a+100 §6${SYMBOLS.mining_speed} Mining Speed §7and §6${SYMBOLS.mining_fortune} Mining Fortune §7as well as §a+2 base powder §7for the first §e2,500 §7ores you mine in a day.`,
     ];
   }
 }
@@ -1000,7 +988,14 @@ class LuckOfTheCave extends Node {
 
   perk(level) {
     const val = 5 + level * 1;
-    return [`§7Increases the chance for you to trigger rare occurrences in §2Dwarven Mines §7by §a${val}%§7.`];
+    return [
+      `§7Increases the chance for you to trigger rare occurrences in §2Dwarven Mines §7by §a${val}%§7.`,
+      ``,
+      `§7Rare occurrences include:`,
+      `§8§l· §6Golden Goblins`,
+      `§8§l· §5Fallen Stars`,
+      `§8§l· §6Powder Ghasts`,
+    ];
   }
 }
 
@@ -1043,9 +1038,10 @@ class Crystallized extends Node {
   }
 
   perk(level) {
-    const val = 20 + (level - 1) * 6;
+    const speed = 20 + (level - 1) * 6;
+    const fortune = 20 + (level - 1) * 5;
     return [
-      `§7Grants §a+${val} §6${SYMBOLS.mining_speed} Mining Speed §7and a §a${val}% §7chance to deal §a+1 §7extra damage near §5Fallen Stars§7.`,
+      `§7Increases §6${speed} ${SYMBOLS.mining_speed} Mining Speed §7and §6${fortune} ${SYMBOLS.mining_fortune} Mining Fortune §7near §5Fallen Stars§7.`,
     ];
   }
 }

@@ -4,6 +4,7 @@ import express from "express";
 
 import { tableify } from "../api.js";
 import { db } from "../../mongo.js";
+import { getItems } from "../../stats.js";
 
 const router = express.Router();
 
@@ -15,22 +16,23 @@ router.use((req, res, next) => {
 router.use(async (req, res, next) => {
   try {
     const { profile, allProfiles, uuid } = await lib.getProfile(db, req.player, req.profile, req.options);
+    const bingoProfile = await lib.getBingoProfile(db, req.player, req.options);
     const userProfile = profile.members[uuid];
 
-    const items = await lib.getItems(userProfile, false, undefined, req.options);
-    const calculated = await lib.getStats(db, profile, allProfiles, items, req.options);
+    const items = await getItems(userProfile, bingoProfile, false, undefined, req.options);
+    const calculated = await lib.getStats(db, profile, bingoProfile, allProfiles, items, req.options);
 
     const response = [];
 
-    for (const skill in calculated.levels) {
-      const pushArr = [helper.titleCase(skill), calculated.levels[skill].level.toString()];
+    for (const skill in calculated.skills.skills) {
+      const pushArr = [helper.titleCase(skill), calculated.skills.skills[skill].level.toString()];
 
       if ("progress" in req.query) {
         pushArr.push(
-          calculated.levels[skill].maxLevel,
-          calculated.levels[skill].xp,
-          calculated.levels[skill].xpCurrent,
-          calculated.levels[skill].xpForNext
+          calculated.skills.skills[skill].maxLevel,
+          calculated.skills.skills[skill].xp,
+          calculated.skills.skills[skill].xpCurrent,
+          calculated.skills.skills[skill].xpForNext
         );
       }
 

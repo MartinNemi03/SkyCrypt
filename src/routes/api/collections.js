@@ -4,7 +4,7 @@ import express from "express";
 
 import { tableify } from "../api.js";
 import { db } from "../../mongo.js";
-import { COLLECTION_DATA } from "../../constants.js";
+import * as stats from "../../stats.js";
 
 const router = express.Router();
 
@@ -17,11 +17,7 @@ router.use(async (req, res, next) => {
   try {
     const { profile, uuid } = await lib.getProfile(db, req.player, req.profile, req.options);
 
-    const collections = await lib.getCollections(uuid, profile, req.options.cacheOnly);
-
-    for (const collection in collections) {
-      collections[collection].name = COLLECTION_DATA.find((a) => a.skyblockId == collection).name;
-    }
+    const collections = await stats.getCollections(uuid, profile, req.options.cacheOnly);
 
     res.send(
       tableify(

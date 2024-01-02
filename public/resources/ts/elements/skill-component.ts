@@ -38,7 +38,7 @@ export class SkillComponent extends LitElement {
     }
 
     const skillName = this.skill[0].toUpperCase() + this.skill.substring(1);
-    this.maxed = level.level === level.maxLevel;
+    this.maxed = level.maxExperience ? level.xpCurrent === level.maxExperience : level.level === level.maxLevel;
 
     return html`
       <div
@@ -62,9 +62,7 @@ export class SkillComponent extends LitElement {
       </div>
       <div class="skill-bar" data-skill="${skillName}">
         <div class="skill-progress-bar" style="--progress: ${level.level == level.levelCap ? 1 : level.progress}"></div>
-        ${"runecrafting" in calculated.levels ||
-        ("catacombs" in calculated.dungeons && ["dungeon_class", "dungeon"].includes(this.type)) ||
-        this.type === "skyblock_level"
+        ${this.isAPIEnabled()
           ? html`<div class="skill-progress-text">
               ${this.hovering ? this.getHoverText(level, this.type) : this.getMainText(level, this.type)}
             </div>`
@@ -80,7 +78,7 @@ export class SkillComponent extends LitElement {
 
     switch (this.type) {
       case "skill":
-        return calculated.levels[this.skill];
+        return calculated.skills.skills[this.skill];
 
       case "dungeon":
         if (this.skill === "catacombs") {
@@ -90,7 +88,7 @@ export class SkillComponent extends LitElement {
         }
 
       case "dungeon_class":
-        return calculated.dungeons.classes[this.skill].experience;
+        return calculated.dungeons.classes.classes[this.skill].level;
 
       case "skyblock_level":
         return calculated.skyblock_level;
@@ -105,8 +103,13 @@ export class SkillComponent extends LitElement {
    */
   private getMainText(level: Level, type: string): string {
     let mainText = formatNumber(level.xpCurrent, true);
+
     if (type === "skyblock_level") {
-      level.progress = level.level / level.maxLevel;
+      level.progress =
+        level.level === level.maxLevel && level.maxExperience
+          ? level.xpCurrent / level.maxExperience
+          : level.xpCurrent / level.xpForNext;
+
       const skillBar = document.querySelector(`.skill-bar[data-skill="Skyblock Level"]`);
       if (skillBar) {
         (skillBar.querySelector(".skill-progress-bar") as HTMLElement).style.setProperty(
@@ -116,9 +119,17 @@ export class SkillComponent extends LitElement {
       }
     }
 
-    if (level.xpForNext && level.xpForNext != Infinity) {
-      mainText += ` / ${formatNumber(level.xpForNext, true)}`;
-      mainText += " XP";
+    if (level.xpForNext && level.xpForNext !== Infinity) {
+      if (level.level === level.maxLevel && level.xpCurrent === level.maxExperience) {
+        return mainText;
+      }
+
+      if (level.level === level.maxLevel && level.maxExperience) {
+        mainText += ` / ${level.maxExperience.toLocaleString()} XP`;
+        return mainText;
+      }
+
+      mainText += ` / ${formatNumber(level.xpForNext, true)} XP`;
     }
 
     return mainText;
@@ -132,6 +143,7 @@ export class SkillComponent extends LitElement {
     if (type === "skyblock_level") {
       hoverText = `${level.level} / ${level.maxLevel} Level`;
       level.progress = level.xpCurrent / level.xpForNext;
+
       const skillBar = document.querySelector(`.skill-bar[data-skill="Skyblock Level"]`) as HTMLElement;
       if (skillBar) {
         (skillBar.querySelector(".skill-progress-bar") as HTMLElement).style.setProperty(
@@ -140,11 +152,30 @@ export class SkillComponent extends LitElement {
         );
       }
     } else if (level.xpForNext && level.xpForNext != Infinity) {
-      hoverText += ` / ${level.xpForNext.toLocaleString()}`;
-      hoverText += " XP";
+      hoverText += ` / ${level.xpForNext.toLocaleString()} XP`;
     }
 
     return hoverText;
+  }
+
+  private isAPIEnabled(): boolean {
+    if (this.type === "skill" && "runecrafting" in calculated.skills.skills === false) {
+      return false;
+    }
+
+    if (this.type === "dungeon" && "catacombs" in calculated.dungeons === false) {
+      return false;
+    }
+
+    if (this.type === "dungeon_class" && "mage" in calculated.dungeons.classes.classes === false) {
+      return false;
+    }
+
+    if (this.type === "skyblock_level" && "skyblock_level" in calculated === false) {
+      return false;
+    }
+
+    return true;
   }
 
   // disable shadow root

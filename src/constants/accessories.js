@@ -1,4 +1,4 @@
-// CREDITS: https://github.com/MattTheCuber
+// CREDITS: https://github.com/MattTheCuber (Modified)
 import { db } from "../mongo.js";
 
 let items = await db.collection("items").find({ category: "accessory" }).toArray();
@@ -13,7 +13,7 @@ const accessoryUpgrades = [
   ["SEA_CREATURE_TALISMAN", "SEA_CREATURE_RING", "SEA_CREATURE_ARTIFACT"],
   ["HEALING_TALISMAN", "HEALING_RING"],
   ["CANDY_TALISMAN", "CANDY_RING", "CANDY_ARTIFACT", "CANDY_RELIC"],
-  ["INTIMIDATION_TALISMAN", "INTIMIDATION_RING", "INTIMIDATION_ARTIFACT"],
+  ["INTIMIDATION_TALISMAN", "INTIMIDATION_RING", "INTIMIDATION_ARTIFACT", "INTIMIDATION_RELIC"],
   ["SPIDER_TALISMAN", "SPIDER_RING", "SPIDER_ARTIFACT"],
   ["RED_CLAW_TALISMAN", "RED_CLAW_RING", "RED_CLAW_ARTIFACT"],
   ["HUNTER_TALISMAN", "HUNTER_RING"],
@@ -70,6 +70,13 @@ const accessoryUpgrades = [
   ["VACCINE_TALISMAN", "VACCINE_RING", "VACCINE_ARTIFACT"],
   ["WHITE_GIFT_TALISMAN", "GREEN_GIFT_TALISMAN", "BLUE_GIFT_TALISMAN", "PURPLE_GIFT_TALISMAN", "GOLD_GIFT_TALISMAN"],
   ["GLACIAL_TALISMAN", "GLACIAL_RING", "GLACIAL_ARTIFACT"],
+  ["CROPIE_TALISMAN", "SQUASH_RING", "FERMENTO_ARTIFACT"],
+  ["KUUDRA_FOLLOWER_ARTIFACT", "KUUDRA_FOLLOWER_RELIC"],
+  ["AGARIMOO_TALISMAN", "AGARIMOO_RING", "AGARIMOO_ARTIFACT"],
+  ["BLOOD_DONOR_TALISMAN", "BLOOD_DONOR_RING", "BLOOD_DONOR_ARTIFACT"],
+  ["LUSH_TALISMAN", "LUSH_RING", "LUSH_ARTIFACT"],
+  ["ANITA_TALISMAN", "ANITA_RING", "ANITA_ARTIFACT"],
+  ["PESTHUNTER_BADGE", "PESTHUNTER_RING", "PESTHUNTER_ARTIFACT"],
 ];
 
 const ignoredAccessories = [
@@ -87,13 +94,21 @@ const ignoredAccessories = [
   "OLD_BOOT",
   "ARGOFAY_TRINKET",
   "DEFECTIVE_MONITOR",
-  "HOCUS_POCUS_CIPHER",
-  "TINY_DANCER",
-  "TEST_BUCKET_PLEASE_IGNORE",
-  "MINIATURIZED_TUBULATOR",
+  "PUNCHCARD_ARTIFACT",
+  "HARMONIOUS_SURGERY_TOOLKIT",
+  "CRUX_TALISMAN_1",
+  "CRUX_TALISMAN_2",
+  "CRUX_TALISMAN_3",
+  "CRUX_TALISMAN_4",
+  "CRUX_TALISMAN_5",
+  "CRUX_TALISMAN_6",
+  "WARDING_TRINKET",
+  "RING_OF_BROKEN_LOVE",
+  "GARLIC_FLAVORED_GUMMY_BEAR",
+  "GENERAL_MEDALLION",
 ];
 
-export const accessoryAliases = {
+export const ACCESSORY_ALIASES = {
   WEDDING_RING_0: ["WEDDING_RING_1"],
   WEDDING_RING_2: ["WEDDING_RING_3"],
   WEDDING_RING_4: ["WEDDING_RING_5", "WEDDING_RING_6"],
@@ -120,48 +135,89 @@ export const accessoryAliases = {
     "CAMPFIRE_TALISMAN_28",
     "CAMPFIRE_TALISMAN_29",
   ],
-  PARTY_HAT_CRAB: ["PARTY_HAT_CRAB_ANIMATED"],
+  PARTY_HAT_CRAB: ["PARTY_HAT_CRAB_ANIMATED", "PARTY_HAT_SLOTH"],
+  DANTE_TALISMAN: ["DANTE_RING"],
 };
 
 const extraAccessories = [
+  /*
   {
-    id: "KUUDRA_FOLLOWER_ARTIFACT",
-    texture: "772011280b5b9ab18c55703943e7f11a19717974bb9541ca4b2723f7a5fab236",
-    name: "Kuudra Follower Artifact",
-    rarity: "epic",
+    id: "ID",
+    texture: "TEXTURE",
+    name: "NAME",
+    tier: "RARITY",
   },
+  */
 ];
 
-const specialAccessories = {
+export const SPECIAL_ACCESSORIES = {
+  BOOK_OF_PROGRESSION: {
+    allowsRecomb: false,
+    rarities: ["uncommon", "rare", "epic", "legendary", "mythic"],
+    customPrice: true,
+  },
   PANDORAS_BOX: {
     allowsRecomb: false,
+    rarities: ["uncommon", "rare", "epic", "legendary", "mythic"],
+    customPrice: true,
+  },
+  TRAPPER_CREST: {
+    rarities: ["uncommon"],
+    customPrice: true,
+  },
+  PULSE_RING: {
+    rarities: ["rare", "epic", "legendary"],
+    customPrice: true,
+    upgrade: {
+      item: "THUNDER_IN_A_BOTTLE",
+      cost: {
+        rare: 3,
+        epic: 20,
+        legendary: 100,
+      },
+    },
+  },
+  POWER_ARTIFACT: {
+    rarities: ["epic"],
+    customPrice: true,
+  },
+  RIFT_PRISM: {
+    allowsRecomb: false,
+  },
+  HOCUS_POCUS_CIPHER: {
+    allowsEnrichment: false,
   },
 };
 
 export function getAllAccessories() {
-  return items
-    .filter((item) => {
-      if (ignoredAccessories.includes(item.id)) return false;
+  const output = items.reduce((accessory, item) => {
+    if (ignoredAccessories.includes(item.id)) return accessory;
 
-      if (Object.values(accessoryAliases).find((list) => list.includes(item.id))) return false;
+    if (Object.values(ACCESSORY_ALIASES).find((list) => list.includes(item.id))) return accessory;
 
-      return true;
-    })
-    .concat(extraAccessories)
-    .reduce((acc, item) => {
-      if (item.material !== undefined && item.texture === undefined) {
-        acc[item.id] = {
+    accessory.push({
+      ...item,
+      texture_path: item.texture !== undefined ? `/head/${item.texture}` : `/item/${item.material}:${item.damage}`,
+      item_id: item.item_id,
+      damage: item.damage,
+    });
+
+    const specialAccessory = SPECIAL_ACCESSORIES[item.id];
+    if (specialAccessory?.rarities) {
+      for (const rarity of specialAccessory.rarities) {
+        accessory.push({
           ...item,
-          texture: `/item/${item.material}:${item.damage}`,
-        };
-      } else {
-        acc[item.id] = {
-          ...item,
-          texture: `/head/${item.texture}`,
-        };
+          ...specialAccessory,
+          tier: rarity,
+          texture_path: item.texture !== undefined ? `/head/${item.texture}` : `/item/${item.material}:${item.damage}`,
+        });
       }
-      return acc;
-    }, {});
+    }
+
+    return accessory;
+  }, []);
+
+  return output.concat(extraAccessories);
 }
 
 function getMaxAccessories() {
@@ -172,7 +228,7 @@ function getMaxAccessories() {
   });
 }
 
-export const UNIQUE_ACCESSORIES_COUNT = Object.keys(getMaxAccessories()).length;
+export const UNIQUE_ACCESSORIES_COUNT = new Set(Object.values(getMaxAccessories()).map((item) => item.id)).size;
 
 export const MAGICAL_POWER = {
   common: 3,
@@ -185,11 +241,11 @@ export const MAGICAL_POWER = {
   very_special: 5,
 };
 
-export const RECOMBABLE_ACCESSORIES_COUNT = getMaxAccessories().filter((accessory) => {
-  if (specialAccessories[accessory.id]?.allowsRecomb === false) return false;
-
-  return true;
-}).length;
+export const RECOMBABLE_ACCESSORIES_COUNT = new Set(
+  getMaxAccessories()
+    .filter((a) => SPECIAL_ACCESSORIES[a.id]?.allowsRecomb !== false)
+    .map((a) => a.id)
+).size;
 
 export function getUpgradeList(id) {
   return accessoryUpgrades.find((list) => list.includes(id));

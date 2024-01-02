@@ -5,7 +5,7 @@ export const TYPE_TO_CATEGORIES = {
   boots: ["armor", "boots"],
   sword: ["weapon", "sword"],
   bow: ["weapon", "bow"],
-  longsword: ["weapon", "longsword"],
+  longsword: ["weapon", "longsword", "sword"],
   wand: ["weapon", "wand"],
   hatccessory: ["armor", "helmet", "accessory", "hatccessory"],
   gauntlet: ["weapon", "mining_tool", "tool", "gauntlet"],
@@ -32,4 +32,23 @@ export const TYPE_TO_CATEGORIES = {
   bracelet: ["bracelet"],
   deployable: ["deployable"],
   "trophy fish": ["trophy_fish"],
+};
+
+export const ENCHANTMENTS_TO_CATEGORIES = {
+  farming_tool: [
+    "cultivating",
+    "dedication",
+    "delicate",
+    "harvesting",
+    "replenish",
+    "sunder",
+    "turbo_cacti",
+    "turbo_cane",
+    "turbo_carrot",
+    "turbo_coco",
+    "turbo_mushrooms",
+    "turbo_potato",
+    "turbo_warts",
+    "turbo_wheat",
+  ],
 };
