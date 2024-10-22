@@ -18,6 +18,7 @@ export * from "../common/helper.js";
 
 export * from "./helper/cache.js";
 export * from "./helper/item.js";
+export * from "./helper/metrics.js";
 
 import {
   GUILD_XP,
@@ -38,6 +39,7 @@ import {
 } from "./constants.js";
 
 import credentials from "./credentials.js";
+import { SkyCryptError } from "./constants/error.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const hypixel = axios.create({
@@ -130,6 +132,10 @@ export function getId(item) {
   return item?.tag?.ExtraAttributes?.id ?? "";
 }
 
+export function getTextureValue(item) {
+  return item?.tag?.SkullOwner?.Properties?.textures?.at(0)?.Value ?? "";
+}
+
 export async function resolveUsernameOrUuid(uuid, db, cacheOnly = false) {
   let user = null;
 
@@ -171,7 +177,7 @@ export async function resolveUsernameOrUuid(uuid, db, cacheOnly = false) {
   }
 
   if (cacheOnly === false && (user == undefined || +new Date() - user.date > 7200 * 1000)) {
-    const profileRequest = axios(`https://api.ashcon.app/mojang/v2/user/${uuid}`, { timeout: 5000 });
+    const profileRequest = axios(`https://mowojang.matdoes.dev/mojang/v2/user/${uuid}`, { timeout: 5000 });
 
     profileRequest
       .then(async (response) => {
@@ -243,7 +249,7 @@ export async function resolveUsernameOrUuid(uuid, db, cacheOnly = false) {
         if (isUuid) {
           return { uuid, display_name: uuid, skin_data: skinData };
         } else {
-          throw new Error(e?.response?.data?.reason ?? "Failed resolving username.");
+          throw new SkyCryptError(e?.response?.data?.reason ?? "Failed resolving username.");
         }
       }
     }
@@ -386,14 +392,14 @@ export function parseRank(player) {
   const rankName = player.prefix
     ? getRawLore(player.prefix).replaceAll(/\[|\]/g, "")
     : player.rank && player.rank != "NORMAL"
-    ? player.rank
-    : player.monthlyPackageRank && player.monthlyPackageRank != "NONE"
-    ? player.monthlyPackageRank
-    : player.newPackageRank
-    ? player.newPackageRank
-    : player.packageRank
-    ? player.packageRank
-    : "NONE";
+      ? player.rank
+      : player.monthlyPackageRank && player.monthlyPackageRank != "NONE"
+        ? player.monthlyPackageRank
+        : player.newPackageRank
+          ? player.newPackageRank
+          : player.packageRank
+            ? player.packageRank
+            : "NONE";
 
   if (RANKS[rankName]) {
     const { tag, color, plus, plusColor } = RANKS[rankName];
@@ -543,7 +549,7 @@ export async function fetchMembers(profileId, db, returnUuid = false) {
         .replaceOne(
           { profile_id: profileId, uuid: profileMember.uuid },
           { profile_id: profileId, uuid: profileMember.uuid, username: profileMember.display_name },
-          { upsert: true }
+          { upsert: true },
         );
     }
 
@@ -604,7 +610,7 @@ export function parseItemGems(gems, rarity) {
 
   const slots = {
     normal: Object.keys(GEMSTONES),
-    special: ["UNIVERSAL", "COMBAT", "OFFENSIVE", "DEFENSIVE", "MINING"],
+    special: ["UNIVERSAL", "COMBAT", "OFFENSIVE", "DEFENSIVE", "MINING", "CHISEL"],
     ignore: ["unlocked_slots"],
   };
 
@@ -631,7 +637,8 @@ export function parseItemGems(gems, rarity) {
         gem_tier: value?.quality || value,
       });
     } else {
-      throw new Error(`Error! Unknown gemstone slot key: ${key}`);
+      console.log(key);
+      // throw new Error(`Error! Unknown gemstone slot key: ${key}`);
     }
   }
 
@@ -656,6 +663,10 @@ export function parseItemGems(gems, rarity) {
 export function generateGemLore(type, tier, rarity) {
   const lore = [];
   const stats = [];
+
+  if (!GEMSTONES[type.toUpperCase()]) {
+    return "§c§oMISSING GEMSTONE DATA§r";
+  }
 
   // Gem color
   const color = `§${GEMSTONES[type.toUpperCase()].color}`;
@@ -828,8 +839,8 @@ export function convertHMS(seconds, format = "clock", alwaysTwoDigits = false) {
 export function parseItemTypeFromLore(lore, item) {
   const regex = new RegExp(
     `^(?<recomb>a )?(?<shiny>SHINY )?(?:(?<rarity>${RARITIES.map((x) => x.replaceAll("_", " ").toUpperCase()).join(
-      "|"
-    )}) ?)(?<dungeon>DUNGEON )?(?<type>[A-Z ]+)?(?<recomb2>a)?$`
+      "|",
+    )}) ?)(?<dungeon>DUNGEON )?(?<type>[A-Z ]+)?(?<recomb2>a)?$`,
   );
 
   // Executing the regex on every lore line
@@ -871,8 +882,8 @@ function getCategories(type, item) {
   const enchantments = item?.tag?.ExtraAttributes?.enchantments || {};
   Object.keys(enchantments).forEach((enchantment) =>
     Object.entries(ENCHANTMENTS_TO_CATEGORIES).forEach(
-      ([category, enchantmentList]) => enchantmentList.includes(enchantment) && categories.push(category)
-    )
+      ([category, enchantmentList]) => enchantmentList.includes(enchantment) && categories.push(category),
+    ),
   );
 
   return [...new Set(categories.concat(TYPE_TO_CATEGORIES[type]))];
@@ -917,7 +928,7 @@ export function generateDebugPets(type = "ALL") {
           heldItem: null,
           skin: null,
           uuid: generateUUID(),
-        }
+        },
       );
     }
   }
@@ -1096,7 +1107,7 @@ export function addToItemLore(item, lore) {
  * @returns {Promise<Item>} A Promise that resolves with the modified item.
  */
 export async function applyResourcePack(item, packs) {
-  const customTexture = await getTexture(item, {
+  const customTexture = getTexture(item, {
     ignore_id: false,
     pack_ids: packs,
   });
@@ -1112,23 +1123,19 @@ export async function applyResourcePack(item, packs) {
   return item;
 }
 
-export async function sendWebhookMessage(e, req) {
-  const webhookUrl = credentials.discord_webhook;
-  if (webhookUrl !== undefined && req.params !== undefined) {
-    let description = "";
-    const playerUsername = req.params.player;
-    if (playerUsername) {
-      description += `Username: \`${playerUsername}\`\n`;
+export async function sendWebhookMessage(e, { username, profile }) {
+  try {
+    const webhookUrl = credentials.discord_webhook;
+    if (webhookUrl === undefined || username === undefined) {
+      return;
     }
 
-    description += `Options: \`${JSON.stringify(req.params)}\`\n`;
-
-    const paramProfile = req.params.profile;
-    if (paramProfile) {
-      description += `Profile: \`${paramProfile}\`\n`;
+    let description = `Username: \`${username}\`\n`;
+    if (profile) {
+      description += `Profile: \`${profile}\`\n`;
     }
 
-    description += `Link: https://sky.shiiyu.moe/stats/${playerUsername}${paramProfile ? `/${paramProfile}` : ""}\n`;
+    description += `Link: https://sky.shiiyu.moe/stats/${username}${profile ? `/${profile}` : ""}\n`;
     description += `\`\`\`${e.stack}\`\`\``;
 
     const embed = {
@@ -1138,8 +1145,8 @@ export async function sendWebhookMessage(e, req) {
       fields: [],
     };
 
-    await axios.post(webhookUrl, { embeds: [embed] }).catch((error) => {
-      console.log(error);
-    });
+    await axios.post(webhookUrl, { embeds: [embed] });
+  } catch (e) {
+    console.error(e);
   }
 }

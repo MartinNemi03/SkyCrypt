@@ -305,7 +305,6 @@ declare const calculated: SkyCryptPlayer & {
         };
       };
     };
-    dungeonsWeight: number;
     journals: {
       journal_entries: {
         name: string;
@@ -362,7 +361,6 @@ declare const calculated: SkyCryptPlayer & {
     unlocked_collections: boolean;
     used_classes: boolean;
   };
-  dungeonsWeight: number;
   enchanting: {
     experimented: true;
     experiments: {
@@ -409,15 +407,15 @@ declare const calculated: SkyCryptPlayer & {
     crops: {
       [key: string]: {
         attended: boolean;
-        badges: { gold: number; silver: number; bronze: number };
+        badges: { diamond: number; platinum: number; gold: number; silver: number; bronze: number };
         contests: number;
         icon: "81_0";
         name: "Cactus";
         personal_best: number;
-        unique_gold: boolean;
+        highest_tier: string;
       };
     };
-    current_badges: { gold: number; silver: number; bronze: number };
+    current_badges: { diamond: number; platinum: number; gold: number; silver: number; bronze: number };
     perks: {
       double_drops: number;
       farming_level_cap: number;
@@ -425,6 +423,8 @@ declare const calculated: SkyCryptPlayer & {
     talked: boolean;
     total_badges: { gold: number; silver: number; bronze: number };
     unique_golds: number;
+    unique_platinums: number;
+    unique_diamonds: number;
   };
   first_joined: SkyCryptRelativeTime;
   fishing: {
@@ -591,8 +591,6 @@ declare const calculated: SkyCryptPlayer & {
   };
   purse: number;
   rank_prefix: string;
-  skillWeight: number;
-  slayerWeight: number;
   slayer_coins_spent: {
     spider: number;
     total: number;
@@ -617,7 +615,6 @@ declare const calculated: SkyCryptPlayer & {
           currentLevel: number;
           maxLevel: number;
           progress: number;
-          weight: { weight: number; weight_overflow: number };
           xp: number;
           xpForNext: number;
         };
@@ -646,7 +643,6 @@ declare const calculated: SkyCryptPlayer & {
       [key in StatName]: number;
     };
   };
-  weight: number;
   century_cakes: {
     stat: string;
     amount: number;

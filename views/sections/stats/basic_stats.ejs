@@ -9,7 +9,7 @@
   <div id="additional_stats_container">
     <!-- Current Area -->
     <% if (calculated.user_data?.current_area?.current_area !== undefined) { %>
-      <div class="additional-stat"> 
+      <div class="additional-stat">
         <span class="stat-name"><%= calculated.user_data.current_area_updated ? 'Current' : 'Last' %> Area: </span>
         <span class="stat-value"><%= calculated.user_data.current_area.current_area %></span>
       </div>
@@ -22,9 +22,9 @@
           <span class="stat-name">Joined: </span>
           <span class="stat-value"><%= calculated.user_data.first_join.text %></span>
         </span>
-      </div> 
-    <% } %> 
-    
+      </div>
+    <% } %>
+
     <!-- Purse -->
     <% if ('purse' in calculated.currencies && calculated.currencies.purse > 0) { %>
       <div class="additional-stat">
@@ -32,8 +32,8 @@
           <span class="stat-value"><%= helper.formatNumber(calculated.currencies.purse, true) %> Coin<%= Math.floor(calculated.currencies.purse) == 1 ? '': 's' %>
         </span>
       </div>
-    <% } %> 
-    
+    <% } %>
+
     <!-- Bank -->
     <% if ('bank' in calculated.currencies && calculated.currencies.bank > 0) { %>
       <div class="additional-stat">
@@ -77,68 +77,6 @@
         </span>
       </div>
     <% } %>
-
-    <!-- Weight -->
-    <% if (calculated.weight) {
-      const weightSystems = [
-        {
-          name: "Senither Weight",
-          author: "Senither",
-          skill: calculated.weight.senither.skill.total,
-          slayer: calculated.weight.senither.slayer.total,
-          dungeon: calculated.weight.senither.dungeon.total,
-          total: calculated.weight.senither.overall,
-        },
-        {
-          name: "Lily Weight",
-          author: "LappySheep",
-          skill: calculated.weight.lily.skill.base + calculated.weight.lily.skill.overflow,
-          slayer: calculated.weight.lily.slayer,
-          dungeon: calculated.weight.lily.catacombs.experience +
-            calculated.weight.lily.catacombs.completion.base +
-            calculated.weight.lily.catacombs.completion.master,
-          total: calculated.weight.lily.total,
-        },
-      ];
-
-      for (weight of weightSystems) {
-        if ("runecrafting" in calculated.skills.skills === false) {
-          weight.total -= weight.skill;
-          weight.skill = 0;
-        }
-        
-        if (weight.total === 0) {
-          continue;
-        } %>
-
-        <div class="additional-stat">
-          <span data-tippy-content="
-            <span class='stat-name'><%= weight.name %></span><br>
-            <span class='stat-info'>Weight calculations by <%= weight.author %></span>
-            <br/><br/>
-            <span class='stat-name'>Skill: </span>
-            <span class='stat-value'>
-            <%= parseFloat(weight.skill.toFixed(2)).toLocaleString() %>
-            </span><br/>
-            <span class='stat-name'>Slayer: </span>
-            <span class='stat-value'>
-            <%= parseFloat(weight.slayer.toFixed(2)).toLocaleString() %>
-            </span><br/>
-            <span class='stat-name'>Dungeon: </span>
-            <span class='stat-value'>
-            <%= parseFloat(weight.dungeon.toFixed(2)).toLocaleString() %>
-            </span><br/><br/>
-            <span class='stat-name'>Total: </span>
-            <span class='stat-value'>
-            <%= parseFloat(weight.total.toFixed(2)).toLocaleString() %>
-            </span>
-            ">
-            <span class="stat-name"><%= weight.name %>: </span>
-            <span class="stat-value"><%= parseFloat(Math.round(weight.total)).toLocaleString() %></span>
-          </span>
-        </div>
-      <% } %>
-    <% } %> 
 
     <!-- Networth -->
     <% if (calculated.networth.noInventory === false) { %>
@@ -240,4 +178,4 @@
       </div>
     <% } %>
   </div>
-</div>   
+</div>

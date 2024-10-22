@@ -245,15 +245,6 @@ export const STATS_DATA = {
     suffix: "",
     color: "a",
   },
-  undead: {
-    name: "Undead",
-    nameLore: "Undead",
-    nameShort: "Undead",
-    nameTiny: "U",
-    symbol: "༕",
-    suffix: "",
-    color: "2",
-  },
   alchemy_wisdom: {
     name: "Alchemy Wisdom",
     nameLore: "Alchemy Wisdom",
@@ -360,6 +351,34 @@ export const STATS_DATA = {
     nameTiny: "BPC",
     symbol: "ൠ",
   },
+  swing_range: {
+    name: "Swing Range",
+    nameLore: "Swing Range",
+    nameShort: "Swing Range",
+    nameTiny: "SR",
+    symbol: "Ⓢ",
+  },
+  cold_resistence: {
+    name: "Cold Resistence",
+    nameLore: "Cold Resistence",
+    nameShort: "Cold Resistence",
+    nameTiny: "CR",
+    symbol: "❄",
+  },
+  mining_spread: {
+    name: "Mining Spread",
+    nameLore: "Mining Spread",
+    nameShort: "Mining Spread",
+    nameTiny: "MS",
+    symbol: "▚",
+  },
+  heat_resistance: {
+    name: "Heat Resistance",
+    nameLore: "Heat Resistance",
+    nameShort: "Heat Resistance",
+    nameTiny: "HR",
+    symbol: "♨",
+  },
 };
 
 export const HIDDEN_STATS = [
@@ -380,6 +399,8 @@ const symbols = {
   soulflow: "⸎",
   dungeon_upgrade: "⚚",
   dye: "✿",
+  undead: "༕",
+  arachnal: "Ж",
 };
 for (const stat in STATS_DATA) {
   symbols[stat] = STATS_DATA[stat].symbol;

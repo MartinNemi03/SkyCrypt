@@ -77,7 +77,7 @@ function getProfilePets(pets, calculated) {
   }
 
   // debug pets
-  // pets = helper.generateDebugPets("OWL");
+  // pets = helper.generateDebugPets("GLACITE_GOLEM");
 
   for (const pet of pets) {
     if ("tier" in pet === false) {
@@ -273,8 +273,8 @@ function getProfilePets(pets, calculated) {
       `§7Total XP: §e${helper.formatNumber(pet.exp, true, 1)} §6/ §e${helper.formatNumber(
         pet.level.xpMaxLevel,
         true,
-        1
-      )} §6(${progress.toLocaleString()}%)`
+        1,
+      )} §6(${progress.toLocaleString()}%)`,
     );
 
     if (petData.obtainsExp !== "feed") {
@@ -284,13 +284,15 @@ function getProfilePets(pets, calculated) {
     if (pet.price > 0) {
       lore.push(
         "",
-        `§7Item Value: §6${Math.round(pet.price).toLocaleString()} Coins §7(§6${helper.formatNumber(pet.price)}§7)`
+        `§7Item Value: §6${Math.round(pet.price).toLocaleString()} Coins §7(§6${helper.formatNumber(pet.price)}§7)`,
       );
     }
 
-    pet.lore = "";
+    pet.tag ??= {};
+    pet.tag.display ??= {};
+    pet.tag.display.Lore ??= [];
     for (const line of lore) {
-      pet.lore += '<span class="lore-row wrap">' + helper.renderLore(line) + "</span>";
+      pet.tag.display.Lore.push(line);
     }
 
     pet.display_name = `${petName}${petSkin ? " ✦" : ""}`;
@@ -424,15 +426,15 @@ function getPetScore(pets) {
   };
 }
 
-export async function getPets(userProfile, calculated, items, profile) {
+export async function getPets(userProfile, calculated, profile) {
   const output = {};
 
   // Get pets from profile
-  const pets = userProfile.pets_data?.pets ?? [];
+  const pets = _.clone(userProfile.pets_data?.pets ?? []);
 
   // Adds pets from inventories
-  if (items.pets !== undefined) {
-    pets.push(...items.pets);
+  if (calculated.items?.pets !== undefined) {
+    pets.push(...calculated.items.pets);
   }
 
   // Add Montezume pet from the Rift
@@ -441,12 +443,16 @@ export async function getPets(userProfile, calculated, items, profile) {
     pets.at(-1).active = false;
   }
 
+  if (pets.length === 0) {
+    return;
+  }
+
   for (const pet of pets) {
     await getItemNetworth(pet, { cache: true, returnItemData: false });
   }
 
   output.pets = getProfilePets(pets, calculated);
-  output.missing = getMissingPets(output.pets, profile.game_mode, output);
+  output.missing = getMissingPets(output.pets, profile.game_mode, calculated);
   output.pet_score = getPetScore(output.pets);
   Object.assign(output, getMiscPetData(calculated, output.pets));
 
@@ -459,9 +465,9 @@ function getMiscPetData(calculated, pets) {
     total_pets: _.uniqBy(
       Object.keys(constants.PET_DATA)
         .filter((pet) =>
-          calculated.profile.game_mode === "bingo" ? constants.PET_DATA[pet] : !constants.PET_DATA[pet].bingoExclusive
+          calculated.profile.game_mode === "bingo" ? constants.PET_DATA[pet] : !constants.PET_DATA[pet].bingoExclusive,
         )
-        .map((pet) => constants.PET_DATA[pet].typeGroup)
+        .map((pet) => constants.PET_DATA[pet].typeGroup),
     ).length,
     total_pet_skins: Object.keys(constants.PET_SKINS).length,
     amount_pet_skins: _.uniqBy(pets, "skin").length,

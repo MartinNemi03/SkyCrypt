@@ -1,7 +1,6 @@
 import { getLevelByXp } from "./skills/leveling.js";
 import * as constants from "../constants.js";
 import * as helper from "../helper.js";
-import { db } from "../mongo.js";
 import moment from "moment";
 
 export function getMiningCoreData(userProfile) {
@@ -33,6 +32,11 @@ export function getMiningCoreData(userProfile) {
       total: (data.powder_gemstone ?? 0) + (data.powder_spent_gemstone ?? 0),
       spent: data.powder_spent_gemstone || 0,
       available: data.powder_gemstone ?? 0,
+    },
+    glacite: {
+      total: (data.powder_glacite ?? 0) + (data.powder_spent_glacite ?? 0),
+      spent: data.powder_spent_glacite ?? 0,
+      available: data.powder_glacite ?? 0,
     },
   };
 
@@ -91,6 +95,8 @@ async function getForge(userProfile) {
         timeFinishedText: "",
       };
 
+      const dbObject = constants.ITEMS.get(item.id);
+
       if (item.id in constants.FORGE_TIMES) {
         let forgeTime = constants.FORGE_TIMES[item.id] * 60 * 1000;
         const quickForge = userProfile.mining_core?.nodes?.forge_time;
@@ -98,13 +104,13 @@ async function getForge(userProfile) {
           forgeTime *= constants.QUICK_FORGE_MULTIPLIER[quickForge];
         }
 
-        const dbObject = await db.collection("items").findOne({ id: item.id });
         forgeItem.name = item.id == "PET" ? "[Lvl 1] Ammonite" : dbObject ? dbObject.name : item.id;
 
         const timeFinished = item.startTime + forgeTime;
         forgeItem.timeFinished = timeFinished;
         forgeItem.timeFinishedText = moment(timeFinished).fromNow();
       } else {
+        forgeItem.name = dbObject?.name ?? helper.titleCase(item.id);
         forgeItem.id = `UNKNOWN-${item.id}`;
       }
 

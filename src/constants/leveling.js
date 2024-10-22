@@ -64,14 +64,20 @@ export const LEVELING_XP = {
 };
 
 let skyblockLevelSkillCap = Math.floor((await getHighestLeaderboardValue("skyblock_level_xp")) / 100);
-setInterval(async () => {
-  skyblockLevelSkillCap = Math.floor((await getHighestLeaderboardValue("skyblock_level_xp")) / 100);
-}, 1000 * 60 * 60 * 24);
+setInterval(
+  async () => {
+    skyblockLevelSkillCap = Math.floor((await getHighestLeaderboardValue("skyblock_level_xp")) / 100);
+  },
+  1000 * 60 * 60 * 24,
+);
 
 let skyblockLevelMaxExperience = (await getHighestLeaderboardValue("skyblock_level_xp")) % 100;
-setInterval(async () => {
-  skyblockLevelMaxExperience = (await getHighestLeaderboardValue("skyblock_level_xp")) % 100;
-}, 1000 * 60 * 60 * 24);
+setInterval(
+  async () => {
+    skyblockLevelMaxExperience = (await getHighestLeaderboardValue("skyblock_level_xp")) % 100;
+  },
+  1000 * 60 * 60 * 24,
+);
 
 export const DEFAULT_SKILL_CAPS = {
   farming: 50,
@@ -289,4 +295,7 @@ export const HOTM_XP = {
   5: 60000,
   6: 100000,
   7: 150000,
+  8: 210000,
+  9: 290000,
+  10: 400000,
 };

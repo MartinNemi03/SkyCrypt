@@ -1,10 +1,10 @@
 import { redisClient } from "../redis.js";
 import * as helper from "../helper.js";
 import * as constants from "../constants.js";
-import * as stats from "../stats.js";
 import * as lib from "../lib.js";
 import { db } from "../mongo.js";
 import _ from "lodash";
+import { SkyCryptError } from "../constants/error.js";
 
 function getMax(calculated, value, path) {
   const currentValue = value ?? 0;
@@ -38,7 +38,7 @@ export async function updateLeaderboardData(
     cacheOnly: true,
     debugId: `${helper.getClusterId()}/unknown@updateLeaderboardData`,
     updateLeaderboards: false,
-  }
+  },
 ) {
   try {
     if (constants.BLOCKED_PLAYERS.includes(uuid)) {
@@ -50,18 +50,13 @@ export async function updateLeaderboardData(
 
     const values = {};
     for (const profile of allProfiles) {
-      if (profile.cute_name !== "Blueberry") {
-        continue;
-      }
-
       const museum = await lib.getMuseum(db, profile, options);
       for (const member in museum) {
         profile.members[member].museum = museum[member];
       }
 
       const paramBingo = profile.game_mode === "bingo" ? await lib.getBingoProfile(db, uuid, options) : null;
-      const items = await stats.getItems(profile.members[profile.uuid], paramBingo, true, [], options);
-      const calculated = await lib.getStats(db, profile, paramBingo, allProfiles, items, [], options);
+      const calculated = await lib.getStats(db, profile, paramBingo, allProfiles, [], options);
 
       if (calculated.skills?.skills !== undefined) {
         for (const skill in calculated.skills.skills) {
@@ -92,7 +87,7 @@ export async function updateLeaderboardData(
             values[`slayer_${slayer}_${formattedTier}_kills`] = getMax(
               calculated,
               values[`slayer_${slayer}_${formattedTier}_kills`],
-              ["slayer", "slayers", slayer, "kills", tier]
+              ["slayer", "slayers", slayer, "kills", tier],
             );
           }
         }
@@ -205,7 +200,7 @@ export async function updateLeaderboardData(
               values[`dungeons_${key}_floor_${floor}_${stat}`] = getMax(
                 calculated,
                 values[`dungeons_${key}_floor_${floor}_${stat}`],
-                ["dungeons", key, "floors", floor, "stats", stat]
+                ["dungeons", key, "floors", floor, "stats", stat],
               );
             }
           }
@@ -218,13 +213,13 @@ export async function updateLeaderboardData(
         values["crimson_isle_factions_mages_reputation"] = getMax(
           calculated,
           values["crimson_isle_factions_mages_reputation"],
-          ["crimson_isle", "factions", "mages_reputation"]
+          ["crimson_isle", "factions", "mages_reputation"],
         );
 
         values["crimson_isle_factions_barbarians_reputation"] = getMax(
           calculated,
           values["crimson_isle_factions_barbarians_reputation"],
-          ["crimson_isle", "factions", "barbarians_reputation"]
+          ["crimson_isle", "factions", "barbarians_reputation"],
         );
 
         if (crimsonIsle?.kuudra?.tiers !== undefined) {
@@ -232,7 +227,7 @@ export async function updateLeaderboardData(
             values[`crimson_isle_kuudra_tier_${tier}_kills`] = getMax(
               calculated,
               values[`crimson_isle_kuudra_tier_${tier}_kills`],
-              ["crimson_isle", "kuudra", "tiers", tier, "completions"]
+              ["crimson_isle", "kuudra", "tiers", tier, "completions"],
             );
           }
         }
@@ -325,10 +320,14 @@ export async function updateLeaderboardData(
       multi.zadd(`lb_${key}`, values[key], uuid);
     }
 
+    await multi.exec();
+
     console.log(`${options.debugId}: updateLeaderboardData returned. (${Date.now() - timeStarted}ms)`);
   } catch (e) {
-    const req = { params: { player: uuid } };
+    if (e instanceof SkyCryptError === false) {
+      return;
+    }
 
-    helper.sendWebhookMessage(e, req, "updateLeaderboardData");
+    helper.sendWebhookMessage(e, { username: uuid });
   }
 }

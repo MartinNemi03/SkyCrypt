@@ -1,6 +1,6 @@
-<% 
+<%
 
-const badgeOrder = ["gold", "silver", "bronze"];
+const badgeOrder = ["diamond", "platinum", "gold", "silver", "bronze"];
 
 function itemIcon(item, classes) { %>
   <div <% if (item.texture_path) { %> style='background-image: url("<%= item.texture_path %>")' <% } %> class="
@@ -19,7 +19,7 @@ function itemIcon(item, classes) { %>
     <div class="category-icon" onclick="window.open('https://www.youtube.com/watch?v=pZaY1jV96jI')">
       <div class="item-icon icon-294_0"></div>
     </div>
-    <span>farming</span>
+    <span class="category-name">farming</span>
   </div>
 
   <p class="stat-raw-values">
@@ -36,7 +36,7 @@ function itemIcon(item, classes) { %>
            if (crop.weight === 0) {
             continue;
           } %>
-            
+
           <span class='stat-name'><%= crop.name %>: </span>
           <span class='stat-value'> <%= parseFloat(crop.weight.toFixed(2)).toLocaleString() %> </span><br/>
         <% } %>
@@ -56,13 +56,13 @@ function itemIcon(item, classes) { %>
     <% } %>
 
     <!-- Pelts -->
-    <% if (calculated.farming.pelts !== undefined) { %> 
+    <% if (calculated.farming.pelts !== undefined) { %>
       <span class="stat-name">Pelts: </span>
       <span class="stat-value"><%= calculated.farming.pelts.toLocaleString() %></span>
       <br>
     <% } %>
 
-    <% 
+    <%
     const farming = calculated.farming;
     if (farming.talked && farming.contests.attended_contests > 0) { %>
       <!-- Contests Attended -->
@@ -75,6 +75,18 @@ function itemIcon(item, classes) { %>
       <span class="stat-name <%= max %>">Unique Golds: </span>
       <span class="stat-value <%= max %>"><%= farming.unique_golds.toLocaleString() %></span>
       <br>
+
+      <!-- Unique Platinum Medals-->
+      <% max = farming.unique_platinums == 10 ? 'golden-text' : '' %>
+      <span class="stat-name <%= max %>">Unique Platinums: </span>
+      <span class="stat-value <%= max %>"><%= farming.unique_platinums.toLocaleString() %></span>
+      <br>
+
+      <!-- Unique Diamond Medals-->
+      <% max = farming.unique_diamonds == 10 ? 'golden-text' : '' %>
+      <span class="stat-name <%= max %>">Unique Diamonds: </span>
+      <span class="stat-value <%= max %>"><%= farming.unique_diamonds.toLocaleString() %></span>
+      <br>
     <% } %>
   </p>
 
@@ -82,14 +94,18 @@ function itemIcon(item, classes) { %>
   <% if (farming.talked && farming.contests.attended_contests > 0) {%>
     <p class="stat-raw-values">
       <% for (const badge of badgeOrder) { %>
+        <% if(["gold", "silver", "bronze"].includes(badge)) { %>
         <span data-tippy-content='
           <span class="stat-name">Current: </span><span class="stat-value"><%= farming.current_badges[badge].toLocaleString() %> Medals</span><br>
           <span class="stat-name">Total: </span><span class="stat-value"><%= farming.total_badges[badge].toLocaleString() %> Medals</span>
           '>
+          <% } %>
 
           <span class="stat-name"><%= badge %> medals: </span>
           <span class="stat-value"><%= farming.total_badges[badge].toLocaleString() %></span>
+          <% if(["gold", "silver", "bronze"].includes(badge)) { %>
         </span>
+        <% } %>
         <br>
       <% } %>
     </p>
@@ -100,21 +116,21 @@ function itemIcon(item, classes) { %>
   <% } %>
 
   <!-- Farming Tools -->
-  <% if (items.farming_tools.length > 0) { %>
+  <% if (items.farming_tools.tools.length > 0) { %>
     <p class="stat-sub-header">Farming Tools</p>
-    <% if (items.highest_rarity_farming_tool) { %>
+    <% if (items.farming_tools.highest_priority_tool) { %>
       <p class="stat-raw-values">
         <span class="stat-name">Active Tool: </span>
-        <span class="stat-active-hoe stat-value"><%- helper.renderLore(items.highest_rarity_farming_tool.tag.display.Name) %></span>
+        <span class="stat-active-hoe stat-value"><%- helper.renderLore(items.farming_tools.highest_priority_tool.tag.display.Name) %></span>
       </p>
-    <% } else{ %>
+    <% } else { %>
       <p class="stat-raw-values">
         <span class="stat-name">Active Tool: </span><span class="stat-active-hoe stat-value piece-common-fg">None</span>
       </p>
     <% } %>
 
     <div class="pieces">
-      <% for (const item of items.farming_tools.filter(a => !a.hidden)) { %>
+      <% for (const item of items.farming_tools.tools) { %>
         <div tabindex="0" data-item-id="<%= item.itemId %>" class="rich-item piece piece-<%= item.rarity %>-bg <%= getRarityUpgradeClass(item) %>">
           <% if (rarityOrder.indexOf(item.rarity) <= 4) { %>
             <div class="piece-shine"></div>
@@ -125,7 +141,7 @@ function itemIcon(item, classes) { %>
       <% } %>
     </div>
   <% } %>
-    
+
   <!-- Farming Crops -->
   <% if (farming.talked) { %>
     <% if (Object.keys(calculated.farming.crops).length > 0) { %>
@@ -152,7 +168,7 @@ function itemIcon(item, classes) { %>
             </div>
 
             <div class="chip-text">
-              <div class="collection-name <%= crop.unique_gold ? 'max-stat' : '' %>">
+              <div class="collection-name <%= ["diamond", "platinum", "gold"].includes(crop.highest_tier) ? 'max-stat' : '' %>">
                 <span class="stat-name"><%= crop.name %></span>
               </div>
 
@@ -160,7 +176,7 @@ function itemIcon(item, classes) { %>
                 <small class="stat-name">Personal Best: </small>
                 <small class="stat-value"><%= helper.formatNumber(crop.personal_best, true) %></small>
                 <br>
-                
+
                 <small class="stat-name">Contests: </small>
                 <small class="stat-value"><%= crop.contests.toLocaleString() %></small>
                 <br>

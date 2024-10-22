@@ -2,9 +2,12 @@
 import { db } from "../mongo.js";
 
 let items = await db.collection("items").find({ category: "accessory" }).toArray();
-setTimeout(async () => {
-  items = await db.collection("items").find({ category: "accessory" }).toArray();
-}, 60 * 60 * 1000); // 1 hour
+setTimeout(
+  async () => {
+    items = await db.collection("items").find({ category: "accessory" }).toArray();
+  },
+  60 * 60 * 1000,
+); // 1 hour
 
 const accessoryUpgrades = [
   ["WOLF_TALISMAN", "WOLF_RING"],
@@ -19,7 +22,6 @@ const accessoryUpgrades = [
   ["HUNTER_TALISMAN", "HUNTER_RING"],
   ["ZOMBIE_TALISMAN", "ZOMBIE_RING", "ZOMBIE_ARTIFACT"],
   ["BAT_TALISMAN", "BAT_RING", "BAT_ARTIFACT"],
-  ["BROKEN_PIGGY_BANK", "CRACKED_PIGGY_BANK", "PIGGY_BANK"],
   ["SPEED_TALISMAN", "SPEED_RING", "SPEED_ARTIFACT"],
   ["PERSONAL_COMPACTOR_4000", "PERSONAL_COMPACTOR_5000", "PERSONAL_COMPACTOR_6000", "PERSONAL_COMPACTOR_7000"],
   ["PERSONAL_DELETOR_4000", "PERSONAL_DELETOR_5000", "PERSONAL_DELETOR_6000", "PERSONAL_DELETOR_7000"],
@@ -60,7 +62,7 @@ const accessoryUpgrades = [
   ],
   ["SOULFLOW_PILE", "SOULFLOW_BATTERY", "SOULFLOW_SUPERCELL"],
   ["ENDER_ARTIFACT", "ENDER_RELIC"],
-  ["POWER_TALISMAN", "POWER_RING", "POWER_ARTIFACT"],
+  ["POWER_TALISMAN", "POWER_RING", "POWER_ARTIFACT", "POWER_RELIC"],
   ["BINGO_TALISMAN", "BINGO_RING", "BINGO_ARTIFACT", "BINGO_RELIC"],
   ["BURSTSTOPPER_TALISMAN", "BURSTSTOPPER_ARTIFACT"],
   ["ODGERS_BRONZE_TOOTH", "ODGERS_SILVER_TOOTH", "ODGERS_GOLD_TOOTH", "ODGERS_DIAMOND_TOOTH"],
@@ -77,6 +79,17 @@ const accessoryUpgrades = [
   ["LUSH_TALISMAN", "LUSH_RING", "LUSH_ARTIFACT"],
   ["ANITA_TALISMAN", "ANITA_RING", "ANITA_ARTIFACT"],
   ["PESTHUNTER_BADGE", "PESTHUNTER_RING", "PESTHUNTER_ARTIFACT"],
+  [
+    "NIBBLE_CHOCOLATE_STICK",
+    "SMOOTH_CHOCOLATE_BAR",
+    "RICH_CHOCOLATE_CHUNK",
+    "GANACHE_CHOCOLATE_SLAB",
+    "PRESTIGE_CHOCOLATE_REALM",
+  ],
+  ["COIN_TALISMAN", "RING_OF_COINS", "ARTIFACT_OF_COINS", "RELIC_OF_COINS"],
+  ["SCAVENGER_TALISMAN", "SCAVENGER_RING", "SCAVENGER_ARTIFACT"],
+  ["EMERALD_RING", "EMERALD_ARTIFACT"],
+  ["MINERAL_TALISMAN", "GLOSSY_MINERAL_TALISMAN"],
 ];
 
 const ignoredAccessories = [
@@ -135,7 +148,8 @@ export const ACCESSORY_ALIASES = {
     "CAMPFIRE_TALISMAN_28",
     "CAMPFIRE_TALISMAN_29",
   ],
-  PARTY_HAT_CRAB: ["PARTY_HAT_CRAB_ANIMATED", "PARTY_HAT_SLOTH"],
+  PARTY_HAT_CRAB: ["PARTY_HAT_CRAB_ANIMATED", "PARTY_HAT_SLOTH", "BALLOON_HAT_2024"],
+  PIGGY_BANK: ["BROKEN_PIGGY_BANK", "CRACKED_PIGGY_BANK"],
   DANTE_TALISMAN: ["DANTE_RING"],
 };
 
@@ -244,7 +258,7 @@ export const MAGICAL_POWER = {
 export const RECOMBABLE_ACCESSORIES_COUNT = new Set(
   getMaxAccessories()
     .filter((a) => SPECIAL_ACCESSORIES[a.id]?.allowsRecomb !== false)
-    .map((a) => a.id)
+    .map((a) => a.id),
 ).size;
 
 export function getUpgradeList(id) {

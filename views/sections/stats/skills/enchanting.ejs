@@ -4,7 +4,7 @@
     <div class="category-icon">
       <div class="item-icon icon-116_0"></div>
     </div>
-    <span>enchanting</span>
+    <span class="category-name">enchanting</span>
   </div>
 
   <% if (calculated.enchanting.unlocked === false) { %>
@@ -51,7 +51,7 @@
                       if (info == 'name' || info == 'icon') {
                         continue;
                       } %>
-                        
+
                       <small class="stat-name"><%= helper.titleCase(info.replace('_', ' ')) %>: </small>
                       <small class="stat-value"><%= tier_data[info] %></small>
                       <br>

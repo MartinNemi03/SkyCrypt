@@ -1,10 +1,10 @@
-import { getPreDecodedNetworth } from "skyhelper-networth";
 import sanitize from "mongo-sanitize";
 import retry from "async-retry";
 import axios from "axios";
 
 import * as constants from "./constants.js";
 import credentials from "./credentials.js";
+import * as cacheTimes from "./cachetimes.js";
 import * as helper from "./helper.js";
 import * as stats from "./stats.js";
 import { SkyCryptError } from "./constants/error.js";
@@ -20,9 +20,10 @@ async function executeFunctions(functions) {
   async function handlePromise(key, fn, args, promise, awaitPromises, condition) {
     try {
       if (condition) {
-        if (promise !== undefined) {
+        if (promise !== undefined && args.output) {
           Object.assign(args.output, results);
         }
+
         results[key] = await fn(...Object.values(args));
       }
     } catch (error) {
@@ -32,19 +33,19 @@ async function executeFunctions(functions) {
   }
 
   const promises = Object.entries(functions).map(([key, { fn, args, promise }]) =>
-    handlePromise(key, fn, args, promise, undefined, promise === undefined)
+    handlePromise(key, fn, args, promise, undefined, promise === undefined),
   );
 
   await Promise.all(promises);
 
   const promises2 = Object.entries(functions).map(([key, { fn, args, promise, awaitPromises }]) =>
-    handlePromise(key, fn, args, promise, awaitPromises, promise !== undefined && awaitPromises === undefined)
+    handlePromise(key, fn, args, promise, awaitPromises, promise !== undefined && awaitPromises === undefined),
   );
 
   await Promise.all(promises2);
 
   const promises3 = Object.entries(functions).map(([key, { fn, args, promise, awaitPromises }]) =>
-    handlePromise(key, fn, args, promise, awaitPromises, promise !== undefined && awaitPromises !== undefined)
+    handlePromise(key, fn, args, promise, awaitPromises, promise !== undefined && awaitPromises !== undefined),
   );
 
   await Promise.all(promises3);
@@ -57,12 +58,18 @@ export async function getStats(
   profile,
   bingoProfile,
   allProfiles,
-  items,
   packs,
-  options = { cacheOnly: false, debugId: `${helper.getClusterId()}/unknown@getStats`, updateLeaderboards: true }
+  options = {
+    cacheOnly: false,
+    debugId: `${helper.getClusterId()}/unknown@getStats`,
+    updateLeaderboards: false,
+    updateGuild: false,
+    customTextures: false,
+  },
 ) {
   const output = {};
 
+  helper.sendMetric("function_getstats_call");
   console.debug(`${options.debugId}: getStats called.`);
   const timeStarted = Date.now();
 
@@ -96,7 +103,7 @@ export async function getStats(
         ...(await helper.resolveUsernameOrUuid(a, db, options.cacheOnly)),
         removed: profile.members[a]?.removed || false,
       };
-    })
+    }),
   );
 
   if (userInfo) {
@@ -122,7 +129,9 @@ export async function getStats(
   }
 
   // fetches the guild and stores it in the database, on the front end it will be fetched from the database if the button is clicked
-  getGuild(db, profile.uuid, options);
+  if (options.updateGuild === true) {
+    getGuild(db, profile.uuid, options);
+  }
 
   output.rank_prefix = helper.renderRank(hypixelProfile);
   output.uuid = profile.uuid;
@@ -151,43 +160,15 @@ export async function getStats(
 
   output.harp_quest = userProfile.quests?.harp_quest || {};
 
-  const specialMuseumItems = items.museumItems.specialItems
-    ? items.museumItems.specialItems.map((a) => a.data).flat()
-    : [];
-  const normalMuseumItems = items.museumItems.items
-    ? Object.values(items.museumItems.items)
-        .filter((a) => a && a.data !== undefined && a.borrowing === false)
-        .map((a) => a.data)
-        .flat()
-    : [];
-
-  const museumItems = [...normalMuseumItems, ...specialMuseumItems];
-
-  output.networth =
-    (await getPreDecodedNetworth(
-      userProfile,
-      {
-        armor: items.armor?.armor ?? [],
-        equipment: items.equipment?.equipment ?? [],
-        wardrobe: items.wardrobe_inventory ?? [],
-        inventory: items.inventory ?? [],
-        enderchest: items.enderchest ?? [],
-        accessories: items.accessory_bag ?? [],
-        personal_vault: items.personal_vault ?? [],
-        storage: items.storage ? items.storage.concat(items.storage.map((item) => item.containsItems).flat()) : [],
-        fishing_bag: items.fishing_bag ?? [],
-        potion_bag: items.potion_bag ?? [],
-        candy_inventory: items.candy_bag ?? [],
-        museum: museumItems,
-      },
-      output.currencies?.bank ?? 0,
-      { cache: true, onlyNetworth: true, v2Endpoint: true }
-    )) ?? {};
-
   const profileMembers = profile.members;
   const uuid = profile.uuid;
 
   const functions = {
+    items: {
+      fn: stats.getItems,
+      args: { userProfile, bingoProfile, customTextures: options.customTextures, packs, options },
+      promise: true,
+    },
     fairy_souls: { fn: stats.getFairySouls, args: { userProfile, profile } },
     skills: { fn: stats.getSkills, args: { userProfile, hypixelProfile, members: profileMembers } },
     slayer: { fn: stats.getSlayer, args: { userProfile } },
@@ -195,7 +176,7 @@ export async function getStats(
     deaths: { fn: stats.getDeaths, args: { userProfile } },
     minions: { fn: stats.getMinions, args: { profile } },
     bestiary: { fn: stats.getBestiary, args: { userProfile } },
-    dungeons: { fn: stats.getDungeons, args: { userProfile, hypixelProfile } },
+    dungeons: { fn: stats.getDungeons, args: { userProfile } },
     fishing: { fn: stats.getFishing, args: { userProfile } },
     farming: { fn: stats.getFarming, args: { userProfile } },
     enchanting: { fn: stats.getEnchanting, args: { userProfile } },
@@ -207,11 +188,12 @@ export async function getStats(
     bingo: { fn: stats.getBingoData, args: { bingoProfile } },
     user_data: { fn: stats.getUserData, args: { userProfile } },
     currencies: { fn: stats.getCurrenciesData, args: { userProfile, profile } },
-    weight: { fn: stats.getWeight, args: { output }, promise: true },
-    accessories: { fn: stats.getMissingAccessories, args: { output, items, packs } },
+    weight: { fn: stats.getWeight, args: { output }, promise: true, awaitPromises: true },
+    accessories: { fn: stats.getMissingAccessories, args: { output, packs }, promise: true, awaitPromises: true },
     temp_stats: { fn: stats.getTempStats, args: { userProfile } },
     rift: { fn: stats.getRift, args: { userProfile } },
-    pets: { fn: stats.getPets, args: { userProfile, output, items, profile }, promise: true, awaitPromises: true },
+    networth: { fn: stats.getNetworth, args: { userProfile, profile, output }, promise: true, awaitPromises: true },
+    pets: { fn: stats.getPets, args: { userProfile, output, profile }, promise: true, awaitPromises: true },
   };
 
   const { results, errors } = await executeFunctions(functions, [userProfile, hypixelProfile, profile.members]);
@@ -220,10 +202,15 @@ export async function getStats(
   output.errors = errors;
   if (Object.keys(errors).length > 0) {
     for (const error in errors) {
-      helper.sendWebhookMessage(errors[error], { params: { player: profile.uuid, profile: profile.profile_id } });
+      const username = profile.uuid;
+      const profileId = profile.profile_id;
+
+      helper.sendWebhookMessage(errors[error], { username, profile: profileId });
+      console.log(errors[error]);
     }
   }
 
+  helper.sendMetric("function_getstats_return");
   console.debug(`${options.debugId}: getStats returned. (${Date.now() - timeStarted}ms)`);
 
   if (options.updateLeaderboards === true) {
@@ -239,8 +226,9 @@ export async function getProfile(
   db,
   paramPlayer,
   paramProfile,
-  options = { cacheOnly: false, debugId: `${helper.getClusterId()}/unknown@getProfile` }
+  options = { cacheOnly: false, debugId: `${helper.getClusterId()}/unknown@getProfile` },
 ) {
+  helper.sendMetric("function_getprofile_call");
   console.debug(`${options.debugId}: getProfile called.`);
   const timeStarted = Date.now();
 
@@ -268,8 +256,6 @@ export async function getProfile(
 
   let profileObject = await db.collection("profileStore").findOne({ uuid: sanitize(paramPlayer) });
 
-  let lastCachedSave = 0;
-
   if (profileObject) {
     const profileData = db
       .collection("profileCache")
@@ -289,20 +275,16 @@ export async function getProfile(
 
   let response = null;
 
-  lastCachedSave = Math.max(profileObject.last_update, Date.now() || 0);
+  const lastCachedSave = profileObject.last_update;
 
-  if (
-    !options.cacheOnly &&
-    ((Date.now() - lastCachedSave > 190 * 1000 && Date.now() - lastCachedSave < 300 * 1000) ||
-      Date.now() - profileObject.last_update >= 300 * 1000)
-  ) {
+  if (!options.cacheOnly && (cacheTimes.isProfileCacheExpired(lastCachedSave) || lastCachedSave === 0)) {
     try {
       profileObject.last_update = Date.now();
       response = await retry(
         async () => {
           return await hypixel.get("v2/skyblock/profiles", { params });
         },
-        { retries: 2 }
+        { retries: 2 },
       );
 
       const { data } = response;
@@ -350,6 +332,10 @@ export async function getProfile(
   const profiles = [];
 
   for (const profile of skyBlockProfiles) {
+    if (profile.members === undefined) {
+      continue;
+    }
+
     let memberCount = 0;
 
     for (let i = 0; i < Object.keys(profile.members).length; i++) {
@@ -432,6 +418,9 @@ export async function getProfile(
   }
 
   const userProfile = profile.members[paramPlayer];
+  if (userProfile === undefined) {
+    throw new SkyCryptError("Couldn't find any Skyblock profile that belongs to this player.");
+  }
 
   if (profileObject && "current_area" in profileObject) {
     userProfile.current_area = profileObject.current_area;
@@ -475,6 +464,7 @@ export async function getProfile(
       .catch(console.error);
   }
 
+  helper.sendMetric("function_getprofile_return");
   console.debug(`${options.debugId}: getProfile returned. (${Date.now() - timeStarted}ms)`);
   return { profile: profile, allProfiles: allSkyBlockProfiles, uuid: paramPlayer };
 }
@@ -482,8 +472,9 @@ export async function getProfile(
 export async function getBingoProfile(
   db,
   paramPlayer,
-  options = { cacheOnly: false, debugId: `${helper.getClusterId()}/unknown@getProfile` }
+  options = { cacheOnly: false, debugId: `${helper.getClusterId()}/unknown@getProfile` },
 ) {
+  helper.sendMetric("function_getbingoprofile_call");
   console.debug(`${options.debugId}: getBingoProfile called.`);
   const timeStarted = Date.now();
 
@@ -508,18 +499,13 @@ export async function getBingoProfile(
   };
 
   const lastCachedSave = profileData.last_save ?? 0;
-  if (
-    (!options.cacheOnly &&
-      ((Date.now() - lastCachedSave > 190 * 1000 && Date.now() - lastCachedSave < 300 * 1000) ||
-        Date.now() - profileData.last_save >= 300 * 1000)) ||
-    lastCachedSave === 0
-  ) {
+  if (!options.cacheOnly && (cacheTimes.isBingoProfileCacheExpired(lastCachedSave) || lastCachedSave === 0)) {
     try {
       const response = await retry(
         async () => {
           return await hypixel.get("skyblock/bingo", { params });
         },
-        { retries: 2 }
+        { retries: 2 },
       );
 
       const { data } = response;
@@ -534,10 +520,11 @@ export async function getBingoProfile(
       db.collection("bingoProfilesCache").updateOne(
         { uuid: sanitize(paramPlayer) },
         { $set: profileData },
-        { upsert: true }
+        { upsert: true },
       );
     } catch (e) {
       if (e?.response?.data?.cause === "No bingo data could be found") {
+        console.debug(`${options.debugId}: getBingoProfile returned. (${Date.now() - timeStarted}ms)`);
         return null;
       }
 
@@ -549,6 +536,7 @@ export async function getBingoProfile(
     }
   }
 
+  helper.sendMetric("function_getbingoprofile_return");
   console.debug(`${options.debugId}: getBingoProfile returned. (${Date.now() - timeStarted}ms)`);
   return profileData;
 }
@@ -556,7 +544,7 @@ export async function getBingoProfile(
 export async function getMuseum(
   db,
   paramProfile,
-  options = { cacheOnly: false, debugId: `${helper.getClusterId()}/unknown@getProfile` }
+  options = { cacheOnly: false, debugId: `${helper.getClusterId()}/unknown@getProfile` },
 ) {
   console.debug(`${options.debugId}: getMuseum called.`);
   const timeStarted = Date.now();
@@ -567,7 +555,7 @@ export async function getMuseum(
   }
 
   let museumData = await db.collection("museumCache").findOne({ profile_id: profileID });
-  if (!options.cacheOnly && (museumData == undefined || museumData.last_save < Date.now() - 1000 * 60 * 30)) {
+  if (!options.cacheOnly && (museumData == undefined || cacheTimes.isMuseumCacheExpired(museumData.last_save))) {
     try {
       const params = {
         key: credentials.hypixel_api_key,
@@ -578,7 +566,7 @@ export async function getMuseum(
         async () => {
           return await hypixel.get("skyblock/museum", { params });
         },
-        { retries: 2 }
+        { retries: 2 },
       );
 
       const { data } = response;
@@ -611,14 +599,14 @@ export async function getMuseum(
 export async function getGuild(
   db,
   paramPlayer,
-  options = { cacheOnly: false, debugId: `${helper.getClusterId()}/unknown@getGuild` }
+  options = { cacheOnly: false, debugId: `${helper.getClusterId()}/unknown@getGuild` },
 ) {
   console.debug(`${options.debugId}: getGuild called.`);
 
   const timeStarted = Date.now();
 
   let output = await db.collection("guildCache").findOne({ uuid: paramPlayer });
-  if (!options.cacheOnly && (!output || output.last_save < Date.now() - 1000 * 60 * 5)) {
+  if (!options.cacheOnly && (!output || cacheTimes.isGuildCacheExpired(output.last_updated))) {
     try {
       const params = {
         key: credentials.hypixel_api_key,
@@ -629,7 +617,7 @@ export async function getGuild(
         async () => {
           return await hypixel.get("guild", { params });
         },
-        { retries: 2 }
+        { retries: 2 },
       );
 
       const { data } = response;

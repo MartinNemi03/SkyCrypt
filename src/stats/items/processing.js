@@ -7,10 +7,10 @@ const mcData = minecraftData("1.8.9");
 import { fileURLToPath } from "url";
 import { db } from "../../mongo.js";
 import path from "path";
-import _ from "lodash";
 
 import util from "util";
 import nbt from "prismarine-nbt";
+import { v4 } from "uuid";
 const parseNbt = util.promisify(nbt.parse);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -90,36 +90,9 @@ export async function processItems(base64, source, customTextures = false, packs
       item.containsItems = [];
       for (const key in item.tag.ExtraAttributes) {
         if (key.startsWith("personal_compact_") || key.startsWith("personal_deletor_")) {
-          const hypixelItem = await db.collection("items").findOne({ id: item.tag.ExtraAttributes[key] });
+          const itemData = await helper.getItemData({ skyblockId: item.tag.ExtraAttributes[key] });
 
-          const itemData = {
-            Count: 1,
-            Damage: hypixelItem?.damage ?? 3,
-            id: hypixelItem?.item_id ?? 397,
-            itemIndex: item.containsItems.length,
-            glowing: hypixelItem?.glowing ?? false,
-            display_name: hypixelItem?.name ?? _.startCase(item.tag.ExtraAttributes[key].replace(/_/g, " ")),
-            rarity: hypixelItem?.tier ?? "common",
-            categories: [],
-          };
-
-          if (hypixelItem?.texture !== undefined) {
-            itemData.texture_path = `/head/${hypixelItem.texture}`;
-          }
-
-          if (itemData.id >= 298 && itemData.id <= 301) {
-            const type = ["helmet", "chestplate", "leggings", "boots"][itemData.id - 298];
-
-            if (hypixelItem?.color !== undefined) {
-              const color = helper.rgbToHex(hypixelItem.color) ?? "955e3b";
-
-              itemData.texture_path = `/leather/${type}/${color}`;
-            }
-          }
-
-          if (hypixelItem === null) {
-            itemData.texture_path = "/head/bc8ea1f51f253ff5142ca11ae45193a4ad8c3ab5e9c6eec8ba7a4fcb7bac40";
-          }
+          itemData.itemId = v4();
 
           item.containsItems.push(itemData);
         }
@@ -202,7 +175,7 @@ export async function processItems(base64, source, customTextures = false, packs
     if (item.tag?.ExtraAttributes?.timestamp != undefined) {
       const timestamp = item.tag.ExtraAttributes.timestamp;
 
-      if (!isNaN(timestamp)) {
+      if (!isNaN(Number(timestamp))) {
         item.extra.timestamp = timestamp;
       } else {
         item.extra.timestamp = Date.parse(timestamp + " EDT");
@@ -306,10 +279,11 @@ export async function processItems(base64, source, customTextures = false, packs
       item.texture_path = constants.ANIMATED_ITEMS[item.extra.skin].texture;
     }
 
-    if (item.tag?.ExtraAttributes?.skin == undefined && customTextures) {
-      const customTexture = await getTexture(item, {
+    if (customTextures) {
+      const customTexture = getTexture(item, {
         ignore_id: false,
         pack_ids: packs,
+        hotm: source === "storage_icons",
       });
 
       if (customTexture) {
@@ -323,10 +297,7 @@ export async function processItems(base64, source, customTextures = false, packs
 
     if (source !== undefined) {
       item.extra ??= {};
-      item.extra.source = source
-        .split(" ")
-        .map((a) => a.charAt(0).toUpperCase() + a.slice(1))
-        .join(" ");
+      item.extra.source = helper.titleCase(source.replace("_", " "));
     }
 
     // Lore stuff
@@ -363,7 +334,7 @@ export async function processItems(base64, source, customTextures = false, packs
         itemLore.push(
           "",
           "§7Applied Gemstones:",
-          ...helper.parseItemGems(item.extra.gems, item.rarity).map((gem) => `§7 - ${gem.lore}`)
+          ...helper.parseItemGems(item.extra.gems, item.rarity).map((gem) => `§7 - ${gem.lore}`),
         );
       }
 
@@ -510,7 +481,7 @@ export async function processItems(base64, source, customTextures = false, packs
       if (item.extra?.base_stat_boost) {
         itemLore.push(
           "",
-          `§7Dungeon Item Quality: ${item.extra.base_stat_boost == 50 ? "§6" : "§c"}${item.extra.base_stat_boost}/50%`
+          `§7Dungeon Item Quality: ${item.extra.base_stat_boost == 50 ? "§6" : "§c"}${item.extra.base_stat_boost}/50%`,
         );
       }
 
@@ -523,28 +494,20 @@ export async function processItems(base64, source, customTextures = false, packs
       }
     }
 
-    if (item?.tag || item?.exp) {
-      if (item.tag?.ExtraAttributes?.id === "PET") {
-        item.tag.ExtraAttributes.petInfo =
-          JSON.stringify(item.tag.ExtraAttributes.petInfo) ?? item.tag.ExtraAttributes.petInfo;
-      }
-
-      const ITEM_PRICE = await getItemNetworth(item, { cache: true });
-
-      if (ITEM_PRICE?.price > 0) {
-        itemLore.push(
-          "",
-          `§7Item Value: §6${Math.round(ITEM_PRICE.price).toLocaleString()} Coins §7(§6${helper.formatNumber(
-            ITEM_PRICE.price
-          )}§7)`
-        );
-      }
-
-      if (item.tag?.ExtraAttributes?.id === "PET") {
-        item.tag.ExtraAttributes.petInfo =
-          typeof item.tag.ExtraAttributes.petInfo === "string"
-            ? JSON.parse(item.tag.ExtraAttributes.petInfo)
-            : item.tag.ExtraAttributes.petInfo;
+    if ((item?.tag || item?.exp) && item.extra?.source !== "Storage Icons") {
+      try {
+        const ITEM_PRICE = await getItemNetworth(item, { cache: true });
+        if (ITEM_PRICE?.price > 0) {
+          itemLore.push(
+            "",
+            `§7Item Value: §6${Math.round(ITEM_PRICE.price).toLocaleString()} Coins §7(§6${helper.formatNumber(
+              ITEM_PRICE.price,
+            )}§7)`,
+          );
+        }
+      } catch (error) {
+        console.log(error);
+        itemLore.push("", `§7Item Value: §cAn error occurred while calculating the value of this item.`);
       }
     }
 

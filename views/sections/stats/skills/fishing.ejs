@@ -1,8 +1,8 @@
-<% 
+<%
 
 const trophyFishOrder = ["bronze", "silver", "gold", "diamond"];
 
-const seaCreatures = [ 
+const seaCreatures = [
   "pond_squid",
   "plhlegblast",
   "sea_walker",
@@ -49,7 +49,7 @@ const seaCreatures = [
   "yeti",
   "grim_reaper",
   "thunder",
-  "lord_jawbus", 
+  "lord_jawbus",
   "agarimoo"
 ];
 
@@ -70,7 +70,7 @@ function itemIcon(item, classes) { %>
     <div class="category-icon">
       <div class="item-icon icon-346_0"></div>
     </div>
-    <span>fishing</span>
+    <span class="category-name">fishing</span>
   </div>
 
   <%
@@ -100,7 +100,7 @@ function itemIcon(item, classes) { %>
       <span class="stat-name">Large treasures fished: </span>
       <span class="stat-value"><%= calculated.fishing.treasure_large.toLocaleString() %></span>
       <br>
-    
+
       <!-- Sea Creatures Killed -->
       <span class="stat-name">Sea Creatures killed: </span>
       <span class="stat-value"><%= totalSeaCreatureKills.toLocaleString() %></span>
@@ -118,7 +118,7 @@ function itemIcon(item, classes) { %>
       <% } %>
 
       <!-- Trophy Fish fished -->
-      <% if (calculated.fishing.trophy_fish !== undefined) { %> 
+      <% if (calculated.fishing.trophy_fish !== undefined) { %>
         <span class="stat-name">Trophy Fish fished: </span>
         <span class="stat-value"><%= calculated.fishing.trophy_fish.toLocaleString() %></span>
         <br>
@@ -126,14 +126,14 @@ function itemIcon(item, classes) { %>
     </p>
   <% } %>
 
-  <% if (items.fishing_tools.length > 0) { %>
+  <% if (items.fishing_tools.tools.length > 0) { %>
     <p class="stat-sub-header">Fishing Rods</p>
-    <% if (items.highest_rarity_fishing_tool) { %>
+    <% if (items.fishing_tools.highest_priority_tool) { %>
       <p class="stat-raw-values">
         <span class="stat-name">Active Rod: </span>
-        <span class="stat-active-rod stat-value"><%- helper.renderLore(items.highest_rarity_fishing_tool.tag.display.Name) %></span>
+        <span class="stat-active-rod stat-value"><%- helper.renderLore(items.fishing_tools.highest_priority_tool.tag.display.Name) %></span>
       </p>
-    <% } else if (items.fishing_tools.length > 0) { %>
+    <% } else if (items.fishing_tools.tools.length > 0) { %>
       <p class="stat-raw-values">
         <span class="stat-name">Active Rod: </span>
         <span class="stat-active-rod stat-value piece-common-fg">None</span>
@@ -141,7 +141,7 @@ function itemIcon(item, classes) { %>
     <% } %>
 
     <div class="pieces">
-      <% for (const item of items.fishing_tools.filter(a => !a.hidden)) { %>
+      <% for (const item of items.fishing_tools.tools) { %>
         <div tabindex="0" data-item-id="<%= item.itemId %>" class="rich-item piece piece-<%= item.rarity %>-bg <%= getRarityUpgradeClass(item) %>">
           <% if (rarityOrder.indexOf(item.rarity) <= 4) { %>
             <div class="piece-shine"></div>
@@ -177,7 +177,7 @@ function itemIcon(item, classes) { %>
     </div>
   <% } %>
 
-                
+
   <% if (calculated?.crimson_isle?.trophy_fish !== undefined && calculated?.crimson_isle?.trophy_fish?.total_caught > 0) { %>
     <button class="stat-sub-header extender" aria-controls="fishing-trophyfish" aria-expanded="false">Trophy Fish</button>
     <div class="trophyfish extendable" id="fishing-trophyfish">

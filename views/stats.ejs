@@ -119,7 +119,7 @@ function itemIcon(item, classes) { %>
       icon-<%= item.id %>_<%= item.Damage %>
     ">
   </div>
-<% } 
+<% }
 
 function jerriefy(rank) {
   if (extra.isFoolsDay) {
@@ -263,7 +263,7 @@ function getDescription() {
     if (classes !== undefined) {
       const classesLine = [];
       for (const [dclass, data] of Object.entries(classes)) {
-        output += `${skillEmojis[dclass]} ${data.experience?.level ?? 0} `;
+        output += `${skillEmojis[dclass]} ${data.level?.level ?? 0} `;
       }
     }
 
@@ -380,7 +380,7 @@ const metaDescription = getMetaDescription()
           <% for (let error in calculated.errors) { %>
             <% console.log(calculated.errors[error]) %>
             <%- calculated.errors[error] %>
-            
+
             <br>
           <% } %>
           <br>
@@ -392,14 +392,14 @@ const metaDescription = getMetaDescription()
     <div id="player_profile"><span class="text-stats-for">Stats for</span>
       <span tabindex="0" id="stats_for_player">
         <!-- Player Rank -->
-        <%- jerriefy(calculated.rank_prefix) %>
+        <span class="player-rank-name"><%- jerriefy(calculated.rank_prefix) %></span>
         <!-- Player Username -->
-        <%= calculated.display_name %>
+        <span class="player-name"><%= calculated.display_name %></span>
         <!-- Custom Player Emoji -->
         <% if (calculated.display_emoji_img) { %>
           <img class="emoji" draggable="false" src="<%= calculated.display_emoji_img %>">
         <% } else if (calculated.display_emoji) { %>
-          <%- extra.twemoji.parse(calculated.display_emoji) %>
+          <%- calculated.display_emoji %>
         <% } %>
 
         <!-- Profile Members -->
@@ -408,13 +408,13 @@ const metaDescription = getMetaDescription()
           <li>
             <a class="goto" href="/stats/<%= member.uuid %>/<%= calculated.profile.profile_id %><%= Object.keys(req.query).length > 0 ? '?' + new URLSearchParams(req.query).toString() : '' %>">
               <!-- Username -->
-              <span class="<%= member.removed === true ? "kicked" : "" %>"> <%= member.display_name %> </span>
+              <span class="player-name <%= member.removed === true ? "kicked" : "" %>"> <%= member.display_name %> </span>
 
               <!-- Emoji -->
               <% if (member.emojiImg) { %>
                 <img class="emoji" draggable="false" src="<%= member.emojiImg %>">
               <% } else if (member.emoji) { %>
-                <%- extra.twemoji.parse(member.emoji) %>
+                <%- member.emoji %>
               <% } %>
             </a>
           </li>
@@ -424,29 +424,29 @@ const metaDescription = getMetaDescription()
       <span class="text-on"> on </span>
       <span tabindex="0" id="stats_for_profile">
         <!-- Profile Name -->
-        <%= calculated.profile.cute_name %>
+        <span class="profile-name"><%= calculated.profile.cute_name %></span>
         <!-- Profile Emoji -->
         <% if (calculated.profile.game_mode == 'ironman') { %>
           <img src="/resources/img/icons/ironman.png" class="emoji" alt="ironman">
         <% } else if (calculated.profile.game_mode == 'bingo') { %>
-          <%- extra.twemoji.parse("🎲") %>
+          <%- "🎲" %>
         <% } else if (calculated.profile.game_mode == 'island') { %>
-          <%- extra.twemoji.parse("🌴") %>
+          <%- "🌴" %>
         <% } %>
 
         <ul id="other_profiles">
           <% for (let profile_id in calculated.profiles) {
             const _profile = calculated.profiles[profile_id]; %>
             <li>
-              <a class="goto" href="/stats/<%= calculated.uuid %>/<%= _profile.profile_id %><%= Object.keys(req.query).length > 0 ? '?' + new URLSearchParams(req.query).toString() : '' %>"> 
-                <%= _profile.cute_name %>
+              <a class="goto" href="/stats/<%= calculated.uuid %>/<%= _profile.profile_id %><%= Object.keys(req.query).length > 0 ? '?' + new URLSearchParams(req.query).toString() : '' %>">
+                <span class="profile-name"><%= _profile.cute_name %></span>
 
                 <% if (_profile.game_mode == 'ironman') { %>
                   <img src="/resources/img/icons/ironman.png" class="emoji">
                 <% } else if (_profile.game_mode == 'bingo') { %>
-                 <%- extra.twemoji.parse("🎲") %>
+                 <%- "🎲" %>
                 <% } else if (_profile.game_mode == 'island') { %>
-                  <%- extra.twemoji.parse("🌴") %>
+                  <%- "🌴" %>
                 <% } %>
               </a>
             </li>
@@ -468,42 +468,47 @@ const metaDescription = getMetaDescription()
 
         <!-- Placnke Button-->
         <a href="https://plancke.io/hypixel/player/stats/<%= calculated.display_name %>" target="_blank" rel="noreferrer" class="additional-player-stat external-link">Plancke</a>
-      
+
+        <!-- Elite Button-->
+        <a href="https://elitebot.dev/@<%= calculated.display_name %>/<%= calculated.profile.profile_id  %>" target="_blank" rel="noreferrer" class="additional-player-stat external-link">Elite</a>
+
         <div id="additional_socials">
           <!-- Copy UUID Button -->
           <button data-copy-text="<%= calculated.uuid %>" class="copy-text additional-player-stat">Copy UUID</button>
-          
-          <!-- Discord Button -->
-          <% if ('DISCORD' in calculated.social) { %> 
-            <button data-copy-text="<%= calculated.social.DISCORD %>" class="additional-player-stat copy-text external-discord external-icon"><%= calculated.social.DISCORD %></button> 
-          <% } %>
 
-          <!-- Twitter Button -->
-          <% if ('TWITTER' in calculated.social) { %> 
-            <a data-tippy-content="Twitter" href="<%= calculated.social.TWITTER %>" target="_blank" rel="noreferrer" class="additional-player-stat external-link external-icon external-twitter"></a> 
-          <% } %>
+          <% if ('social' in calculated && Object.keys(calculated.social).length > 0) { %>
+            <!-- Discord Button -->
+            <% if ('DISCORD' in calculated.social) { %>
+              <button data-copy-text="<%= calculated.social.DISCORD %>" class="additional-player-stat copy-text external-discord external-icon"><%= calculated.social.DISCORD %></button>
+            <% } %>
 
-          <!-- Youtube Button -->
-          <% if ('YOUTUBE' in calculated.social) { %> 
-            <a data-tippy-content="YouTube" href="<%= calculated.social.YOUTUBE %>" target="_blank" rel="noreferrer" class="additional-player-stat external-link external-icon external-youtube"></a> 
-          <% } %>
+            <!-- Twitter Button -->
+            <% if ('TWITTER' in calculated.social) { %>
+              <a data-tippy-content="Twitter" href="<%= calculated.social.TWITTER %>" target="_blank" rel="noreferrer" class="additional-player-stat external-link external-icon external-twitter"></a>
+            <% } %>
 
-          <!-- Instagram Button -->
-          <% if ('INSTAGRAM' in calculated.social) { %> 
-            <a data-tippy-content="Instagram" href="<%= calculated.social.INSTAGRAM %>" target="_blank" rel="noreferrer" class="additional-player-stat external-link external-icon external-instagram"></a> 
-          <% } %>
+            <!-- Youtube Button -->
+            <% if ('YOUTUBE' in calculated.social) { %>
+              <a data-tippy-content="YouTube" href="<%= calculated.social.YOUTUBE %>" target="_blank" rel="noreferrer" class="additional-player-stat external-link external-icon external-youtube"></a>
+            <% } %>
 
-          <!-- Twitch Button -->
-          <% if ('TWITCH' in calculated.social) { %> 
-            <a data-tippy-content="Twitch" href="<%= calculated.social.TWITCH %>" target="_blank" rel="noreferrer" class="additional-player-stat external-link external-icon external-twitch"></a> 
-          <% } %>
+            <!-- Instagram Button -->
+            <% if ('INSTAGRAM' in calculated.social) { %>
+              <a data-tippy-content="Instagram" href="<%= calculated.social.INSTAGRAM %>" target="_blank" rel="noreferrer" class="additional-player-stat external-link external-icon external-instagram"></a>
+            <% } %>
 
-          <!-- Hypixel Button -->
-          <% if ('HYPIXEL' in calculated.social) { %> 
-            <a data-tippy-content="Hypixel Forums" href="<%= calculated.social.HYPIXEL %>" target="_blank" rel="noreferrer" class="additional-player-stat external-link external-icon external-hypixel"></a> 
-          <% } %>
+            <!-- Twitch Button -->
+            <% if ('TWITCH' in calculated.social) { %>
+              <a data-tippy-content="Twitch" href="<%= calculated.social.TWITCH %>" target="_blank" rel="noreferrer" class="additional-player-stat external-link external-icon external-twitch"></a>
+            <% } %>
 
-          <button class="additional-player-stat" id="reveal_socials" aria-label="reveal socials"></button>
+            <!-- Hypixel Button -->
+            <% if ('HYPIXEL' in calculated.social) { %>
+              <a data-tippy-content="Hypixel Forums" href="<%= calculated.social.HYPIXEL %>" target="_blank" rel="noreferrer" class="additional-player-stat external-link external-icon external-hypixel"></a>
+            <% } %>
+
+            <button class="additional-player-stat" id="reveal_socials" aria-label="reveal socials"></button>
+          <% } %>
         </div>
       </div>
     </div>
@@ -535,7 +540,7 @@ const metaDescription = getMetaDescription()
         <a class="nav-item" href="#Skills">Skills</a>
         <% if (calculated.dungeons !== undefined) { %> <a class="nav-item" href="#Dungeons">Dungeons</a> <% } %>
         <% if (calculated.slayer !== undefined) { %> <a class="nav-item" href="#Slayer">Slayer</a> <% } %>
-        <% if (calculated.minions.totalMinions > 0) { %> <a class="nav-item" href="#Minions">Minions</a> <% } %>
+        <% if (calculated.minions.unlockedTiers > 0) { %> <a class="nav-item" href="#Minions">Minions</a> <% } %>
         <% if (calculated.bestiary !== undefined) { %> <a class="nav-item" href="#Bestiary">Bestiary</a> <% } %>
         <% if (calculated.collections !== undefined) { %> <a class="nav-item" href="#Collections">Collections</a> <% } %>
         <% if (calculated.crimson_isle !== undefined) { %>  <a class="nav-item" href="#Crimson_Isle">Crimson Isle</a> <% } %>
@@ -570,27 +575,27 @@ const metaDescription = getMetaDescription()
             <% } %>
 
             <% if (calculated.profile.game_mode == 'ironman') { %>
-              <% if (notAvailable.length > 0) { %> 
-                <br> 
+              <% if (notAvailable.length > 0) { %>
+                <br>
               <% } %>
 
-              This is an <strong>Ironman</strong> profile. The player cannot use the auction house, bazaar, trade, or pick up drops from other players.
+              This is an <strong>Ironman</strong> profile. The player cannot use the auction house, bazaar, or trade with other players.
             <% } %>
 
 
             <% if (calculated.profile.game_mode == 'bingo') { %>
-              <% if (notAvailable.length > 0) { %> 
-                <br> 
+              <% if (notAvailable.length > 0) { %>
+                <br>
               <% } %>
-          
-              This is a <strong>Bingo</strong> profile. The player cannot spend gems, use the auction house, bazaar, trade, or pick up drops from other players.
+
+              This is a <strong>Bingo</strong> profile. The player cannot spend gems, use the auction house, bazaar or trade with other players.
             <% } %>
 
             <% if (calculated.profile.game_mode == 'island') { %>
-              <% if (notAvailable.length > 0) { %> 
+              <% if (notAvailable.length > 0) { %>
                 <br>
               <% } %>
-          
+
               This is a <strong>Stranded</strong> profile. The player cannot leave their skyblock island or trade with other players.
             <% } %>
           </div>
@@ -628,14 +633,14 @@ const metaDescription = getMetaDescription()
         <!-- Inventories (Inventory, Storage, Ender Chest, Vault, Accessories, Pots, Fish, Quiver) -->
         <%- include('./sections/stats/items/inventory.ejs', { getRarityUpgradeClass, rarityOrder, isEnchanted }); %>
       <% } %>
-      
+
       <!-- Skills -->
       <%- include('./sections/stats/skills.ejs', { getRarityUpgradeClass, rarityOrder, isEnchanted }); %>
 
       <!-- Dungeons -->
       <% if (calculated.dungeons !== undefined) { %>
         <%- include('./sections/stats/dungeons.ejs', { skillItems }); %>
-      <% } %> 
+      <% } %>
 
       <!-- Slayer -->
       <% if (calculated.slayer !== undefined) { %>
@@ -643,10 +648,11 @@ const metaDescription = getMetaDescription()
       <% } %>
 
       <!-- Minions -->
-      <% if (calculated.minions.totalMinions > 0) { // Show only if player has unlocked a minion %> 
+      <% if (calculated.minions.unlockedTiers > 0) { %>
         <%- include('./sections/stats/minions.ejs', { skillItems }); %>
       <% } %>
 
+      <!-- Bestiary-->
       <% if (calculated.bestiary !== undefined) {%>
         <%- include('./sections/stats/bestiary.ejs', {}); %>
       <% } %>
@@ -657,7 +663,7 @@ const metaDescription = getMetaDescription()
       <% } %>
 
       <!-- Crimson Isle -->
-      <% if (calculated.crimson_isle !== undefined) { %> 
+      <% if (calculated.crimson_isle !== undefined) { %>
         <%- include('./sections/stats/crimson_isle.ejs', {}); %>
       <% } %>
 
@@ -670,8 +676,8 @@ const metaDescription = getMetaDescription()
       <% if (calculated.profile.game_mode === "bingo" && calculated.bingo !== undefined) { %>
         <%- include('./sections/stats/bingo.ejs', {}); %>
       <% } %>
-      
-      <!-- Miscellaneous --> 
+
+      <!-- Miscellaneous -->
       <% if (calculated.misc !== undefined) { %>
         <%- include('./sections/stats/misc.ejs', { rarityOrder }); %>
       <% } %>

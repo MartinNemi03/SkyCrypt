@@ -1,4 +1,4 @@
-<% 
+<%
 
 function formatNucleusCrystal(crystal, state) {
   if (!state) {
@@ -46,18 +46,18 @@ function itemIcon(item, classes) { %>
     <div class="category-icon">
       <div class="item-icon icon-274_0"></div>
     </div>
-    <span>mining</span>
+    <span class="category-name">mining</span>
   </div>
 
   <% const mining = calculated.mining; %>
 
   <!-- Currently Active Tool -->
-  <% if (items.mining_tools.length > 0) { %>
+  <% if (items.mining_tools.tools.length > 0) { %>
     <p class="stat-sub-header">Mining Tools</p>
-    <% if (items.highest_rarity_mining_tool) { %>
+    <% if (items.mining_tools.highest_priority_tool) { %>
       <p class="stat-raw-values">
         <span class="stat-name">Active Tool: </span>
-        <span class="stat-active-pickaxe stat-value"><%- helper.renderLore(items.highest_rarity_mining_tool.tag.display.Name) %></span>
+        <span class="stat-active-pickaxe stat-value"><%- helper.renderLore(items.mining_tools.highest_priority_tool.tag.display.Name) %></span>
       </p>
     <% } else { %>
       <p class="stat-raw-values">
@@ -67,7 +67,7 @@ function itemIcon(item, classes) { %>
 
     <!-- Mining Tools -->
     <div class="pieces">
-      <% for (const item of items.mining_tools.filter(a => !a.hidden)) { %>
+      <% for (const item of items.mining_tools.tools) { %>
         <div tabindex="0" data-item-id="<%= item.itemId %>" class="rich-item piece piece-<%= item.rarity %>-bg <%= getRarityUpgradeClass(item) %>">
           <% if (rarityOrder.indexOf(item.rarity) <= 4) { %>
             <div class="piece-shine"></div>
@@ -112,7 +112,7 @@ function itemIcon(item, classes) { %>
       <br>
 
       <!-- Crystal Nucleus -->
-      <% const delivered_parts = mining.core.crystal_nucleus?.precursor?.parts_delivered || [];  
+      <% const delivered_parts = mining.core.crystal_nucleus?.precursor?.parts_delivered || [];
 
       const precursor_parts = {};
       for (const [partId, partName] of Object.entries(constants.PRECURSOR_PARTS)) {
@@ -205,15 +205,28 @@ function itemIcon(item, classes) { %>
         <%= mining.core.powder.gemstone.total.toLocaleString() %>
       </span>
       <br>
+      <!-- Glacite Powder -->
+      <% max = mining.core.powder.glacite.total >= constants.HOTM.powder_for_max_nodes.glacite_powder ? 'golden-text' : '' %>
+      <span class="stat-name <%= max %>">Glacite Powder:</span>
+      <span class="stat-value <%= max %>" data-tippy-content="
+        <span class='stat-name'>Total:</span> <span class='stat-value'><%= mining.core.powder.glacite.total.toLocaleString() %></span><br>
+        <span class='stat-name'>Spent:</span> <span class='stat-value'><%= mining.core.powder.glacite.spent.toLocaleString() %></span><br>
+        <span class='stat-name'>Available:</span> <span class='stat-value'><%= mining.core.powder.glacite.available.toLocaleString() %></span>
+      ">
+        <%= mining.core.powder.glacite.total.toLocaleString() %>
+      </span>
+      <br>
 
       <!-- Pickaxe Ability -->
       <span class="stat-name">Pickaxe Ability:</span>
       <span class="stat-value"><%= mining.core.selected_pickaxe_ability || 'None' %></span>
     </p>
 
-    <div id="inventory_container">
-      <inventory-view inventory-type="hotm"></inventory-view>
-    </div>
+    <% if (items.hotm.length > 0) { %>
+      <div id="inventory_container">
+        <inventory-view inventory-type="hotm"></inventory-view>
+      </div>
+    <% } %>
 
     <p class="stat-sub-header">Forge</p>
     <% if (mining.forge?.processes?.length > 0) {
@@ -225,7 +238,7 @@ function itemIcon(item, classes) { %>
               <%= process.name %> - <%= process.timeFinished < Date.now() ? "ended" : `ending ${process.timeFinishedText}`%>
             </span>
           <% } else { %>
-            <span class="stat-value">Unknown item</span>
+            <span class="stat-value"><%= process.name %></span>
 
             <script>
               console.error( "Unknown forge item id: <%= process.id.split('UNKNOWN-')[1] %>" )

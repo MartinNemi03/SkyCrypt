@@ -1,11 +1,12 @@
 import { getCookie, setCookie } from "./common-defer";
-import { SkinViewer, createOrbitControls } from "skinview3d";
+import { SkinViewer, IdleAnimation } from "skinview3d";
 import tippy from "tippy.js";
 
 import { renderLore } from "../../../common/formatting.js";
 
 import { getPlayerStats } from "./calculate-player-stats";
 import { RARITY_COLORS } from "../../../common/constants.js";
+import { owoifyMessage } from "../../../src/constants/themes/april-fools-2024/index.js";
 
 import("./elements/inventory-view");
 import("./elements/guild-button");
@@ -27,7 +28,7 @@ if ("share" in navigator) {
           <path fill="white" d="${shareIcon}" />
         </svg>
       </button>
-    `
+    `,
   );
   favoriteElement.nextElementSibling?.addEventListener("click", () => {
     navigator.share({
@@ -50,23 +51,19 @@ if (calculated.skin_data) {
     width: playerModel.offsetWidth,
     height: playerModel.offsetHeight,
     model: calculated.skin_data.model,
-    skin: "/texture/" + calculated.skin_data.skinurl.split("/").pop(),
-    cape:
-      calculated.skin_data.capeurl != undefined
-        ? "/texture/" + calculated.skin_data.capeurl.split("/").pop()
-        : "/cape/" + calculated.display_name,
+    skin: calculated.skin_data.skinurl,
+    cape: calculated.skin_data.capeurl,
   });
 
   playerModel.appendChild(skinViewer.canvas);
 
   skinViewer.camera.position.set(-18, -3, 58);
 
-  const controls = createOrbitControls(skinViewer);
-
   skinViewer.canvas.removeAttribute("tabindex");
 
-  controls.enableZoom = false;
-  controls.enablePan = false;
+  skinViewer.controls.enableZoom = true;
+  skinViewer.controls.enablePan = true;
+  skinViewer.controls.enableRotate = true;
 
   /**
    * the average Z rotation of the arms
@@ -79,18 +76,7 @@ if (calculated.skin_data) {
   const basicCapeRotationX = Math.PI * 0.06;
 
   if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    skinViewer.animations.add((player, time) => {
-      // Multiply by animation's natural speed
-      time *= 2;
-
-      // Arm swing
-      const armRotation = Math.cos(time) * 0.03 + basicArmRotationZ;
-      player.skin.leftArm.rotation.z = armRotation;
-      player.skin.rightArm.rotation.z = armRotation * -1;
-
-      // Cape wave
-      player.cape.rotation.x = Math.sin(time) * 0.01 + basicCapeRotationX;
-    });
+    skinViewer.animation = new IdleAnimation();
   } else {
     skinViewer.playerObject.skin.leftArm.rotation.z = basicArmRotationZ;
     skinViewer.playerObject.skin.rightArm.rotation.z = basicArmRotationZ * -1;
@@ -138,7 +124,7 @@ export const ALL_ITEMS = new Map(
         return item;
       }
     })
-    .map((item) => [item.itemId, item])
+    .map((item) => [item.itemId, item]),
 );
 
 const dimmer = document.querySelector("#dimmer") as HTMLElement;
@@ -257,6 +243,8 @@ function fillLore(element: HTMLElement) {
     return;
   }
 
+  const owofiyLore = localStorage.getItem("currentThemeUrl") === "/resources/themes/april-fools-2024.json";
+
   const itemNameString = ((item as Item).tag?.display?.Name ?? item.display_name ?? "???") as string;
   const colorCode = itemNameString.match(/^§([0-9a-fklmnor])/i);
   if (colorCode && colorCode[1]) {
@@ -274,6 +262,10 @@ function fillLore(element: HTMLElement) {
   if (element.hasAttribute("data-pet-index")) {
     itemNameContent.dataset.multicolor = "false";
     itemNameContent.innerHTML = `[Lvl ${(item as Pet).level.level}] ${item.display_name}`;
+  }
+
+  if (owofiyLore === true) {
+    itemNameContent.innerHTML = owoifyMessage(itemNameContent.innerHTML);
   }
 
   if (item.texture_path) {
@@ -295,9 +287,11 @@ function fillLore(element: HTMLElement) {
   if ("lore" in item) {
     itemLore.innerHTML = item.lore;
   } else if ("tag" in item && Array.isArray(item.tag.display?.Lore)) {
-    itemLore.innerHTML = item.tag.display.Lore.map(
-      (line: string) => '<span class="lore-row">' + renderLore(line) + "</span>"
-    ).join("");
+    itemLore.innerHTML = item.tag.display.Lore.map((line: string) => {
+      const newLine = owofiyLore ? owoifyMessage(line) : line;
+
+      return '<span class="lore-row">' + renderLore(newLine) + "</span>";
+    }).join("");
   } else {
     itemLore.innerHTML = "";
   }
@@ -413,7 +407,7 @@ function resize() {
 
 document.querySelectorAll(".extender").forEach((element) => {
   element.addEventListener("click", () =>
-    element.setAttribute("aria-expanded", (element.getAttribute("aria-expanded") != "true").toString())
+    element.setAttribute("aria-expanded", (element.getAttribute("aria-expanded") != "true").toString()),
   );
 });
 
@@ -559,7 +553,7 @@ function parseFavorites(cookie: string) {
 
 function checkFavorite() {
   const favorited = parseFavorites(getCookie("favorite") ?? "").includes(
-    favoriteElement.getAttribute("data-username") as string
+    favoriteElement.getAttribute("data-username") as string,
   );
   favoriteElement.setAttribute("aria-checked", favorited.toString());
   return favorited;
@@ -627,7 +621,7 @@ class ScrollMemory {
         this._loaded = true;
         this.isSmoothScrolling = true;
       },
-      { once: true }
+      { once: true },
     );
 
     window.addEventListener("hashchange", () => {
@@ -698,7 +692,7 @@ const sectionObserver = new IntersectionObserver(
       }
     }
   },
-  { rootMargin: "-100px 0px -25% 0px" }
+  { rootMargin: "-100px 0px -25% 0px" },
 );
 
 function scrollToTab(smooth = true, element?: HTMLElement) {
@@ -849,7 +843,7 @@ export function formatNumber(number: number, floor: boolean, rounding = 10): str
   } else if (floor) {
     return (
       (Math.floor((number / 1000 / 1000 / 1000) * rounding * 10) / (rounding * 10)).toFixed(
-        rounding.toString().length
+        rounding.toString().length,
       ) + "B"
     );
   } else {
@@ -877,7 +871,7 @@ export function formatNumber(number: number, floor: boolean, rounding = 10): str
       "value",
       Object.values(stats[stat])
         .reduce((a, b) => a + b, 0)
-        .toString()
+        .toString(),
     );
 
     node.data = stats[stat];
@@ -934,5 +928,42 @@ export function formatNumber(number: number, floor: boolean, rounding = 10): str
     node.data = bonusStats;
 
     element.appendChild(node);
+  });
+}
+
+const currentTheme = localStorage.getItem("currentThemeUrl");
+if (currentTheme === "/resources/themes/april-fools-2024.json") {
+  document.querySelectorAll("*").forEach((element) => {
+    // return lore text color to default color (so it's not pink)
+    if (element.classList.contains("item-lore")) {
+      element.classList.add("nice-colors-light");
+      return;
+    }
+
+    element.classList.add("april-fools-2024");
+
+    const owoifyElements = [
+      "stat-name",
+      "stat-value",
+      "stat-sub-header",
+      "narrow-info-name",
+      "stat-header",
+      "inventory-tab-name",
+      "category-name",
+      "nav-item",
+      "text-stats-for",
+      "pet-name",
+      "pet-level",
+      "skill-name",
+      "kill-entity",
+      "tier-name",
+      "skill-name",
+      "rank-name",
+      "player-name",
+      "profile-name",
+    ];
+    if (owoifyElements.some((owoifyElement) => element.classList.contains(owoifyElement))) {
+      element.innerHTML = owoifyMessage(element.innerHTML);
+    }
   });
 }

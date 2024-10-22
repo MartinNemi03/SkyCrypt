@@ -36,14 +36,14 @@ const FEATURED_PROFILES = [
   {
     // WarpWing
     uuid: "7d7b04b49c24433cacc60a3da66eba01",
-    type: "MAINTAINER",
+    type: "HOST",
     message: "Grandmaster of Unit Testing",
   },
   {
     // DuckySoLucky
     uuid: "dec987bbfa734d63bb9d566139232f81",
     type: "CONTRIBUTOR",
-    message: "Best Ratter EU",
+    message: "btw i use arch",
   },
   {
     // LeaPhant
@@ -78,7 +78,7 @@ const FEATURED_PROFILES = [
 
       FEATURED_PROFILES[index].username = profile.display_name;
       FEATURED_PROFILES[index].emoji = profile?.emoji;
-    })
+    }),
   );
 
   const cachePath = helper.getCacheFolderPath(helper.getFolderPath());
